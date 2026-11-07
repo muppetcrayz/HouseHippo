@@ -214,6 +214,34 @@ precondition(todays.map(\.id) == [dated.id])
 precondition(flexibles.map(\.id) == [unscheduled.id])
 precondition(Set(todays.map(\.id)).isDisjoint(with: Set(flexibles.map(\.id))))
 for _ in 0..<50 { precondition(todays.randomElement()?.id == dated.id && flexibles.randomElement()?.id == unscheduled.id) }
+// Timed tasks stay visible today but enter random selection only at their due time.
+let evening = calendar.date(bySettingHour: 19, minute: 0, second: 0, of: jan)!
+let justBefore = evening.addingTimeInterval(-1)
+for frequency: Reminder.Frequency in [.once, .daily, .weekly, .monthly, .custom] {
+    var timed = Reminder(title: "Timed", message: "", date: evening, frequency: frequency)
+    timed.allDay = false
+    precondition(timed.isDueToday(at: justBefore))
+    precondition(!timed.isEligibleForTodayRandom(at: justBefore))
+    precondition(timed.isEligibleForTodayRandom(at: evening))
+    precondition(timed.isEligibleForTodayRandom(at: evening.addingTimeInterval(1)))
+    if frequency != .once {
+        timed.date = calendar.date(byAdding: .day, value: -7, to: evening)!
+        if frequency == .monthly { timed.date = calendar.date(byAdding: .month, value: -1, to: evening)! }
+        precondition(!timed.isEligibleForTodayRandom(at: justBefore))
+        precondition(timed.isEligibleForTodayRandom(at: evening))
+    }
+}
+var deferredTimed = Reminder(title: "Deferred", message: "", date: evening, frequency: .once)
+deferredTimed.deferredUntil = evening
+precondition(!deferredTimed.isEligibleForTodayRandom(at: justBefore))
+precondition(deferredTimed.isEligibleForTodayRandom(at: evening))
+var allDayRandom = Reminder(title: "All day", message: "", date: jan, frequency: .once)
+allDayRandom.allDay = true
+precondition(allDayRandom.isEligibleForTodayRandom(at: justBefore))
+allDayRandom.completed = true
+precondition(!allDayRandom.isEligibleForTodayRandom(at: justBefore))
+precondition(!unscheduled.isEligibleForTodayRandom(at: justBefore))
+print("Today's random checks passed: future times excluded, exact due-time boundary, recurring anchors, deferred times, all-day eligibility and completed exclusions.")
 print("Flexible/random checks passed: disjoint pools, completed/future exclusions, one-offs, 1/3/6 month cycles, late completions and once-per-month completion.")
 '''
 checks += r'''

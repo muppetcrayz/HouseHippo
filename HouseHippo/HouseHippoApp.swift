@@ -143,6 +143,18 @@ struct Reminder: Identifiable, Codable, Equatable {
         }
         return Calendar.current.isDate(date, inSameDayAs: now)
     }
+    func isEligibleForTodayRandom(at now: Date = Date()) -> Bool {
+        guard isDueToday(at: now) else { return false }
+        if isAllDay || isFlexibleTask { return true }
+        if let deferredUntil { return deferredUntil <= now }
+        if [.daily, .weekly, .monthly, .custom].contains(frequency) {
+            let start = Calendar.current.startOfDay(for: now)
+            guard let occurrence = nextScheduledOccurrence(after: start.addingTimeInterval(-1)) else { return false }
+            return occurrence <= now
+        }
+        return date <= now
+    }
+
     enum Owner: String, Codable, CaseIterable {
         // Keep stored values stable for existing tasks and dashboard preferences.
         case me = "Me", husband = "Husband", shared = "Shared"
@@ -667,7 +679,7 @@ struct TaskList: View {
                     }
                 }
                 if mode == .dashboard {
-                    taskSection("Today's Tasks", tasks: filtered.filter { !$0.isFlexibleTask || $0.deferredUntil != nil }, random: true)
+                    taskSection("Today's Tasks", tasks: filtered.filter { !$0.isFlexibleTask || $0.deferredUntil != nil }, random: true, todayRandom: true)
                     taskSection("Flexible Tasks", tasks: filtered.filter { $0.isFlexibleTask && $0.deferredUntil == nil }, random: true)
                 } else { taskSection(mode == .notifications ? "Your notifications" : "Your reminders", tasks: filtered) }
             }
@@ -699,12 +711,14 @@ struct TaskList: View {
             } message: { Text("Each export creates new lists and copies. Flexible and custom schedules are saved in notes and need to be configured in Reminders.") }
         }
     }
-    @ViewBuilder private func taskSection(_ title: String, tasks: [Reminder], random: Bool = false) -> some View {
+    @ViewBuilder private func taskSection(_ title: String, tasks: [Reminder], random: Bool = false, todayRandom: Bool = false) -> some View {
         if !tasks.isEmpty || random {
             Section(title) {
                 if random {
-                    Button("Pick a random task", systemImage: "dice") { editing = tasks.randomElement() }
-                        .disabled(tasks.isEmpty)
+                    Button("Pick a random task", systemImage: "dice") {
+                        editing = tasks.filter { !todayRandom || $0.isEligibleForTodayRandom() }.randomElement()
+                    }
+                        .disabled(!tasks.contains { !todayRandom || $0.isEligibleForTodayRandom(at: dashboardNow) })
                         .accessibilityLabel("Pick a random task from " + title)
                     if tasks.isEmpty { Text("No tasks ready in this list.").foregroundStyle(.secondary) }
                 }

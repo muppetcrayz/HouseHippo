@@ -39,7 +39,7 @@ struct HomeDashboard: View {
                         metric("Flexible", value: flexible.count, icon: "leaf", color: .orange)
                         metric("Done today", value: done, icon: "checkmark.circle", color: .green)
                     }
-                    taskBoard("Today's Tasks", icon: "sun.max", tasks: today, accent: .teal)
+                    taskBoard("Today's Tasks", icon: "sun.max", tasks: today, accent: .teal, todayRandom: true)
                     taskBoard("Flexible Tasks", icon: "leaf", tasks: flexible, accent: .orange)
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: 260), spacing: 12)], alignment: .leading, spacing: 12) {
                         dinnerCard
@@ -101,11 +101,11 @@ struct HomeDashboard: View {
         }.frame(maxWidth: .infinity, alignment: .leading).padding(14)
             .background(color.opacity(0.08), in: RoundedRectangle(cornerRadius: 14))
     }
-    private func taskBoard(_ title: String, icon: String, tasks: [Reminder], accent: Color) -> some View {
+    private func taskBoard(_ title: String, icon: String, tasks: [Reminder], accent: Color, todayRandom: Bool = false) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             ViewThatFits(in: .horizontal) {
-                HStack { boardTitle(title, icon: icon, count: tasks.count, accent: accent); Spacer(); randomButton(tasks, title: title) }
-                VStack(alignment: .leading, spacing: 8) { boardTitle(title, icon: icon, count: tasks.count, accent: accent); randomButton(tasks, title: title) }
+                HStack { boardTitle(title, icon: icon, count: tasks.count, accent: accent); Spacer(); randomButton(tasks, title: title, todayRandom: todayRandom) }
+                VStack(alignment: .leading, spacing: 8) { boardTitle(title, icon: icon, count: tasks.count, accent: accent); randomButton(tasks, title: title, todayRandom: todayRandom) }
             }
             if tasks.isEmpty {
                 HStack(spacing: 10) {
@@ -127,9 +127,12 @@ struct HomeDashboard: View {
             Text(count, format: .number).font(.caption.bold()).padding(.horizontal, 8).padding(.vertical, 3).background(accent.opacity(0.1), in: Capsule())
         }
     }
-    private func randomButton(_ tasks: [Reminder], title: String) -> some View {
-        Button("Random pick", systemImage: "dice") { editing = tasks.randomElement() }
-            .buttonStyle(.bordered).disabled(tasks.isEmpty)
+    private func randomButton(_ tasks: [Reminder], title: String, todayRandom: Bool) -> some View {
+        Button("Random pick", systemImage: "dice") {
+            editing = tasks.filter { !todayRandom || $0.isEligibleForTodayRandom() }.randomElement()
+        }
+            .buttonStyle(.bordered)
+            .disabled(!tasks.contains { !todayRandom || $0.isEligibleForTodayRandom(at: now) })
             .accessibilityLabel("Pick a random task from " + title)
     }
     private var dinnerCard: some View {

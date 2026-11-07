@@ -1,0 +1,337 @@
+[
+  {
+    "rule": "RRULE FREQ=MONTHLY;INTERVAL=1;BYMONTHDAY=28,29,30,31;BYSETPOS=-1",
+    "date": 817707600,
+    "completed": false
+  },
+  {
+    "rule": "RRULE FREQ=WEEKLY;INTERVAL=1;BYDAY=SU,MO,TU,WE,FR,SA",
+    "date": 815634000,
+    "completed": false
+  },
+  {
+    "rule": "RRULE FREQ=DAILY;INTERVAL=5",
+    "date": 815720400,
+    "completed": false
+  },
+  {
+    "rule": "RRULE FREQ=WEEKLY;INTERVAL=1",
+    "date": 815720400,
+    "completed": false
+  },
+  {
+    "rule": "RRULE FREQ=WEEKLY;INTERVAL=2",
+    "date": 816325200,
+    "completed": false
+  },
+  {
+    "rule": "RRULE FREQ=MONTHLY;INTERVAL=1;BYMONTHDAY=28,29,30,31;BYSETPOS=-1",
+    "date": 817707600,
+    "completed": false
+  },
+  {
+    "rule": "RRULE FREQ=WEEKLY;INTERVAL=1",
+    "date": 815634000,
+    "completed": false
+  },
+  {
+    "rule": "RRULE FREQ=DAILY;INTERVAL=1",
+    "date": 815547600,
+    "completed": false
+  },
+  {
+    "rule": "RRULE FREQ=WEEKLY;INTERVAL=1",
+    "date": 815720400,
+    "completed": false
+  },
+  {
+    "rule": "RRULE FREQ=WEEKLY;INTERVAL=1",
+    "date": 815634000,
+    "completed": false
+  },
+  {
+    "rule": "RRULE FREQ=WEEKLY;INTERVAL=1;BYDAY=SU,TU,WE,TH,FR,SA",
+    "date": 815547600,
+    "completed": false
+  },
+  {
+    "rule": "RRULE FREQ=DAILY;INTERVAL=1",
+    "date": 815547600,
+    "completed": false
+  },
+  {
+    "rule": "RRULE FREQ=WEEKLY;INTERVAL=1;BYDAY=MO,WE,FR",
+    "date": 815634000,
+    "completed": false
+  },
+  {
+    "rule": "RRULE FREQ=DAILY;INTERVAL=1",
+    "date": 815547600,
+    "completed": false
+  },
+  {
+    "rule": "RRULE FREQ=DAILY;INTERVAL=1",
+    "date": 815547600,
+    "completed": false
+  },
+  {
+    "rule": "RRULE FREQ=WEEKLY;INTERVAL=1",
+    "date": 815882400,
+    "completed": false
+  },
+  {
+    "rule": "RRULE FREQ=WEEKLY;INTERVAL=1",
+    "date": 815806800,
+    "completed": false
+  },
+  {
+    "rule": "RRULE FREQ=WEEKLY;INTERVAL=1",
+    "date": 815806800,
+    "completed": false
+  },
+  {
+    "rule": "RRULE FREQ=WEEKLY;INTERVAL=1;BYDAY=SU,TU,TH",
+    "date": 815547600,
+    "completed": false
+  },
+  {
+    "rule": "RRULE FREQ=WEEKLY;INTERVAL=1",
+    "date": 815893200,
+    "completed": false
+  },
+  {
+    "rule": "RRULE FREQ=WEEKLY;INTERVAL=1",
+    "date": 815893200,
+    "completed": false
+  },
+  {
+    "rule": "RRULE FREQ=WEEKLY;INTERVAL=1",
+    "date": 815979600,
+    "completed": false
+  },
+  {
+    "rule": "RRULE FREQ=DAILY;INTERVAL=1",
+    "date": 815547600,
+    "completed": false
+  },
+  {
+    "rule": "RRULE FREQ=WEEKLY;INTERVAL=1",
+    "date": 815547600,
+    "completed": false
+  },
+  {
+    "rule": "RRULE FREQ=DAILY;INTERVAL=2",
+    "date": 815634000,
+    "completed": false
+  },
+  {
+    "rule": "RRULE FREQ=WEEKLY;INTERVAL=2",
+    "date": 816670800,
+    "completed": false
+  },
+  {
+    "rule": "RRULE FREQ=WEEKLY;INTERVAL=1",
+    "date": 815634000,
+    "completed": false
+  },
+  {
+    "rule": "RRULE FREQ=WEEKLY;INTERVAL=1",
+    "date": 815720400,
+    "completed": false
+  },
+  {
+    "rule": "RRULE FREQ=WEEKLY;INTERVAL=1;BYDAY=WE",
+    "date": 815547600,
+    "completed": false
+  },
+  {
+    "rule": "RRULE FREQ=WEEKLY;INTERVAL=1",
+    "date": 815720400,
+    "completed": false
+  },
+  {
+    "rule": "RRULE FREQ=WEEKLY;INTERVAL=1;BYDAY=MO,TU,WE,TH",
+    "date": 815547600,
+    "completed": false
+  },
+  {
+    "rule": "RRULE FREQ=DAILY;INTERVAL=1",
+    "date": 815619600,
+    "completed": false
+  },
+  {
+    "rule": "RRULE FREQ=WEEKLY;INTERVAL=1",
+    "date": 815720400,
+    "completed": false
+  },
+  {
+    "rule": "RRULE FREQ=WEEKLY;INTERVAL=1",
+    "date": 815720400,
+    "completed": false
+  },
+  {
+    "rule": "RRULE FREQ=DAILY;INTERVAL=1;UNTIL=20260204T235000Z",
+    "date": 791874000,
+    "completed": true
+  },
+  {
+    "rule": "RRULE FREQ=MONTHLY;INTERVAL=1",
+    "date": 817794000,
+    "completed": false
+  },
+  {
+    "rule": "RRULE FREQ=MONTHLY;INTERVAL=1;BYMONTHDAY=1",
+    "date": 817794000,
+    "completed": false
+  },
+  {
+    "rule": "RRULE FREQ=WEEKLY;INTERVAL=1",
+    "date": 815720400,
+    "completed": false
+  },
+  {
+    "rule": "RRULE FREQ=WEEKLY;INTERVAL=1;BYDAY=MO,TU,WE,TH,FR,SA",
+    "date": 815605200,
+    "completed": false
+  },
+  {
+    "rule": "RRULE FREQ=WEEKLY;INTERVAL=2",
+    "date": 815979600,
+    "completed": false
+  },
+  {
+    "rule": "RRULE FREQ=DAILY;INTERVAL=1;UNTIL=20260518T133700Z",
+    "date": 800733600,
+    "completed": true
+  },
+  {
+    "rule": "RRULE FREQ=WEEKLY;INTERVAL=2",
+    "date": 816325200,
+    "completed": false
+  },
+  {
+    "rule": "RRULE FREQ=WEEKLY;INTERVAL=2",
+    "date": 815720400,
+    "completed": false
+  },
+  {
+    "rule": "RRULE FREQ=WEEKLY;INTERVAL=1",
+    "date": 815806800,
+    "completed": false
+  },
+  {
+    "rule": "RRULE FREQ=WEEKLY;INTERVAL=2",
+    "date": 816066000,
+    "completed": false
+  },
+  {
+    "rule": "RRULE FREQ=WEEKLY;INTERVAL=2",
+    "date": 816411600,
+    "completed": false
+  },
+  {
+    "rule": "RRULE FREQ=WEEKLY;INTERVAL=2",
+    "date": 816066000,
+    "completed": false
+  },
+  {
+    "rule": "RRULE FREQ=WEEKLY;INTERVAL=1",
+    "date": 815688000,
+    "completed": false
+  },
+  {
+    "rule": "RRULE FREQ=WEEKLY;INTERVAL=1;BYDAY=MO,TU,WE,TH,FR",
+    "date": 815547600,
+    "completed": false
+  },
+  {
+    "rule": "RRULE FREQ=WEEKLY;INTERVAL=2",
+    "date": 816498000,
+    "completed": false
+  },
+  {
+    "rule": "RRULE FREQ=WEEKLY;INTERVAL=1;BYDAY=MO,WE,FR",
+    "date": 815634000,
+    "completed": false
+  },
+  {
+    "rule": "RRULE FREQ=WEEKLY;INTERVAL=2",
+    "date": 815979600,
+    "completed": false
+  },
+  {
+    "rule": "RRULE FREQ=WEEKLY;INTERVAL=2",
+    "date": 816152400,
+    "completed": false
+  },
+  {
+    "rule": "RRULE FREQ=WEEKLY;INTERVAL=1;BYDAY=MO,TU,FR,SA",
+    "date": 815634000,
+    "completed": false
+  },
+  {
+    "rule": "RRULE FREQ=DAILY;INTERVAL=1",
+    "date": 815547600,
+    "completed": false
+  },
+  {
+    "rule": "RRULE FREQ=DAILY;INTERVAL=1",
+    "date": 815547600,
+    "completed": false
+  },
+  {
+    "rule": "RRULE FREQ=DAILY;INTERVAL=1",
+    "date": 815547600,
+    "completed": false
+  },
+  {
+    "rule": "RRULE FREQ=DAILY;INTERVAL=1",
+    "date": 815547600,
+    "completed": false
+  },
+  {
+    "rule": "RRULE FREQ=DAILY;INTERVAL=1",
+    "date": 815547600,
+    "completed": false
+  },
+  {
+    "rule": "RRULE FREQ=WEEKLY;INTERVAL=2",
+    "date": 815893200,
+    "completed": false
+  },
+  {
+    "rule": "RRULE FREQ=DAILY;INTERVAL=1",
+    "date": 815616000,
+    "completed": false
+  },
+  {
+    "rule": "RRULE FREQ=WEEKLY;INTERVAL=1",
+    "date": 815800500,
+    "completed": false
+  },
+  {
+    "rule": "RRULE FREQ=WEEKLY;INTERVAL=2",
+    "date": 816411600,
+    "completed": false
+  },
+  {
+    "rule": "RRULE FREQ=WEEKLY;INTERVAL=2",
+    "date": 816411600,
+    "completed": false
+  },
+  {
+    "rule": "RRULE FREQ=WEEKLY;INTERVAL=1",
+    "date": 815702400,
+    "completed": false
+  },
+  {
+    "rule": "RRULE FREQ=WEEKLY;INTERVAL=1",
+    "date": 816066000,
+    "completed": false
+  },
+  {
+    "rule": "RRULE FREQ=DAILY;INTERVAL=1",
+    "date": 815547600,
+    "completed": false
+  }
+]

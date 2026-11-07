@@ -1,0 +1,50 @@
+# Private household data, recovery files, and distribution archives
+/Backups/
+/Builds/
+HouseHippo-backup*.json
+HouseHippo-transfer*.json
+*-task-repair.json
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+
+# macOS and editor files
+.DS_Store
+._*
+.vscode/
+.idea/
+*.swp
+*~
+
+# Xcode user settings and generated output
+xcuserdata/
+*.xcuserstate
+DerivedData/
+build/
+*.xcarchive/
+*.dSYM/
+*.ipa
+*.pkg
+*.dmg
+*.xcresult/
+*.xcscmblueprint
+*.xccheckout
+
+# Swift Package Manager
+.build/
+.swiftpm/
+
+# Local secrets and signing material
+.env
+.env.*
+!.env.example
+*.p12
+*.p8
+*.key
+*.mobileprovision
+*.provisionprofile
+
+# Python test caches
+__pycache__/
+*.py[cod]
+.pytest_cache/

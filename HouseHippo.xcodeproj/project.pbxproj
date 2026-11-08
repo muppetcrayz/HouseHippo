@@ -194,7 +194,7 @@
 				CODE_SIGN_ENTITLEMENTS = HouseHippo/HouseHippoiOS.entitlements;
 				"CODE_SIGN_ENTITLEMENTS[sdk=macosx*]" = HouseHippo/HouseHippoMac.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 8;
+				CURRENT_PROJECT_VERSION = 9;
 				DEVELOPMENT_TEAM = E25BK4VCB2;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
@@ -231,7 +231,7 @@
 				CODE_SIGN_ENTITLEMENTS = HouseHippo/HouseHippoiOS.entitlements;
 				"CODE_SIGN_ENTITLEMENTS[sdk=macosx*]" = HouseHippo/HouseHippoMac.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 8;
+				CURRENT_PROJECT_VERSION = 9;
 				DEVELOPMENT_TEAM = E25BK4VCB2;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;

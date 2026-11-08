@@ -307,6 +307,35 @@ precondition(dstTask.deferredUntil == due(2030, 11, 3))
 print("Move-to-tomorrow checks passed: weekly cadence, monthly day 31, custom anchor, one-offs, flexible tasks, time preservation, DST, persistence, repeat clicks and completion undo.")
 }
 '''
+checks += r'''
+do {
+    let today = calendar.date(from: DateComponents(year: 2030, month: 11, day: 8, hour: 12))!
+    let yesterday = calendar.date(byAdding: .day, value: -1, to: today)!
+    let older = calendar.date(byAdding: .day, value: -3, to: today)!
+    let tomorrow = calendar.date(byAdding: .day, value: 1, to: today)!
+    let oldTask = Reminder(title: "Older", message: "", date: older, frequency: .once)
+    let lateTask = Reminder(title: "Yesterday", message: "", date: yesterday, frequency: .once)
+    let current = Reminder(title: "Today", message: "", date: today, frequency: .once)
+    let future = Reminder(title: "Tomorrow", message: "", date: tomorrow, frequency: .once)
+    var completed = lateTask
+    completed.completed = true
+    var deleted = lateTask
+    deleted.deletedAt = today
+    let tasks = [future, current, lateTask, oldTask, completed, deleted].sorted(by: Reminder.orderedBefore)
+    let overdue = tasks.filter { $0.isOverdue(at: today) }
+    let todayTasks = overdue + tasks.filter { $0.isDueToday(at: today) && !$0.isOverdue(at: today) }
+    precondition(todayTasks.map(\.id) == [oldTask.id, lateTask.id, current.id])
+    precondition(oldTask.isEligibleForTodayRandom(at: today))
+    precondition(lateTask.isEligibleForTodayRandom(at: today))
+    precondition(!future.isEligibleForTodayRandom(at: today))
+    precondition(!completed.isEligibleForTodayRandom(at: today))
+    precondition(!deleted.isEligibleForTodayRandom(at: today))
+    var deferred = oldTask
+    deferred.deferredUntil = tomorrow
+    precondition(!deferred.isOverdue(at: today) && !deferred.isEligibleForTodayRandom(at: today))
+    print("Dashboard overdue checks passed: oldest first, today inclusion, future/completed/deleted exclusions, random eligibility and deferral.")
+}
+'''
 with tempfile.TemporaryDirectory(prefix="NotifyMe-checks-") as directory:
     script = Path(directory) / "Checks.swift"
     script.write_text("import Foundation\n" + model + method + "\n" + checks)

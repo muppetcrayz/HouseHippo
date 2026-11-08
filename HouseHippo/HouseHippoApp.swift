@@ -144,7 +144,8 @@ struct Reminder: Identifiable, Codable, Equatable {
         return Calendar.current.isDate(date, inSameDayAs: now)
     }
     func isEligibleForTodayRandom(at now: Date = Date()) -> Bool {
-        guard isDueToday(at: now) else { return false }
+        guard isDueToday(at: now) || (!isNotification && isOverdue(at: now)) else { return false }
+        if isOverdue(at: now) { return true }
         if isAllDay || isFlexibleTask { return true }
         if let deferredUntil { return deferredUntil <= now }
         if [.daily, .weekly, .monthly, .custom].contains(frequency) {

@@ -29,8 +29,9 @@ struct HomeDashboard: View {
     var body: some View {
         // ReminderStore already publishes tasks in display order. Compute each pool once per render.
         let tasks = visible
-        let today = tasks.filter { $0.isDueToday(at: now) }
-        let flexible = tasks.filter { $0.isAvailableFlexible(at: now) }
+        let overdue = tasks.filter { $0.isOverdue(at: now) }
+        let today = overdue + tasks.filter { $0.isDueToday(at: now) && !$0.isOverdue(at: now) }
+        let flexible = tasks.filter { $0.isAvailableFlexible(at: now) && !$0.isOverdue(at: now) }
         return NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 22) {
@@ -117,7 +118,7 @@ struct HomeDashboard: View {
                 }.padding(16).background(.background, in: RoundedRectangle(cornerRadius: 14))
             } else {
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 260), spacing: 12)], alignment: .leading, spacing: 12) {
-                    ForEach(tasks) { task in DashboardTaskCard(task: task, accent: accent, open: { editing = task }) }
+                    ForEach(tasks) { task in DashboardTaskCard(task: task, accent: accent, now: now, open: { editing = task }) }
                 }
             }
         }
@@ -131,7 +132,7 @@ struct HomeDashboard: View {
     }
     private func randomButton(_ tasks: [Reminder], title: String, todayRandom: Bool) -> some View {
         Button("Random pick", systemImage: "dice") {
-            randomPick = tasks.filter { !todayRandom || $0.isEligibleForTodayRandom() }.randomElement()
+            randomPick = tasks.filter { !todayRandom || $0.isEligibleForTodayRandom(at: now) }.randomElement()
         }
             .buttonStyle(.bordered)
             .disabled(!tasks.contains { !todayRandom || $0.isEligibleForTodayRandom(at: now) })
@@ -184,17 +185,20 @@ private struct DashboardTaskCard: View {
     @EnvironmentObject private var store: ReminderStore
     let task: Reminder
     let accent: Color
+    let now: Date
     let open: () -> Void
+    private var overdue: Bool { task.isOverdue(at: now) }
+    private var cardAccent: Color { overdue ? .red : accent }
     var body: some View {
         HStack(spacing: 0) {
             Button { Task { await store.complete(task) } } label: {
-                Image(systemName: "circle").font(.title2).foregroundStyle(accent)
+                Image(systemName: "circle").font(.title2).foregroundStyle(cardAccent)
                     .frame(width: 44).frame(maxHeight: .infinity).contentShape(Rectangle())
             }.buttonStyle(.plain).accessibilityLabel("Complete " + task.title)
             Button(action: open) {
                 VStack(alignment: .leading, spacing: 6) {
-                    Text(task.title).font(.headline).foregroundStyle(.primary).lineLimit(2)
-                    Text(task.summary).font(.caption).foregroundStyle(task.isOverdue() ? .red : .secondary).lineLimit(2)
+                    Text(task.title).font(.headline).foregroundStyle(overdue ? .red : .primary).lineLimit(2)
+                    Text(task.summary).font(.caption).foregroundStyle(overdue ? .red : .secondary).lineLimit(2)
                     HStack(spacing: 6) {
                         Text(task.list).lineLimit(1)
                         Text("·")
@@ -204,7 +208,7 @@ private struct DashboardTaskCard: View {
             }.buttonStyle(.plain).frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .background(.background, in: RoundedRectangle(cornerRadius: 14))
-        .overlay { RoundedRectangle(cornerRadius: 14).strokeBorder(Color.primary.opacity(0.08)) }
+        .overlay { RoundedRectangle(cornerRadius: 14).strokeBorder(overdue ? Color.red.opacity(0.4) : Color.primary.opacity(0.08)) }
         .contextMenu {
             if task.canMoveToTomorrow {
                 Button("Move to tomorrow", systemImage: "calendar.badge.clock") { Task { await store.moveToTomorrow(task) } }

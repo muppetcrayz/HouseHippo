@@ -8,6 +8,7 @@ struct HomeDashboard: View {
     @State private var now = Date()
     @State private var search = ""
     @State private var editing: Reminder?
+    @State private var randomPick: Reminder?
     @State private var connections = false
     var navigate: (Int) -> Void
     private var owner: Reminder.Owner { Reminder.Owner(rawValue: person) ?? .me }
@@ -50,6 +51,7 @@ struct HomeDashboard: View {
             .navigationTitle("Dashboard")
             .searchable(text: $search, prompt: "Find a task")
             .sheet(item: $editing) { ReminderEditor(reminder: $0).frame(minWidth: 340, minHeight: 500) }
+            .sheet(item: $randomPick) { RandomPickSheet(task: $0) }
             .sheet(isPresented: $connections) {
                 NavigationStack {
                     ScrollView { CloudStatusView().padding(24) }
@@ -129,7 +131,7 @@ struct HomeDashboard: View {
     }
     private func randomButton(_ tasks: [Reminder], title: String, todayRandom: Bool) -> some View {
         Button("Random pick", systemImage: "dice") {
-            editing = tasks.filter { !todayRandom || $0.isEligibleForTodayRandom() }.randomElement()
+            randomPick = tasks.filter { !todayRandom || $0.isEligibleForTodayRandom() }.randomElement()
         }
             .buttonStyle(.bordered)
             .disabled(!tasks.contains { !todayRandom || $0.isEligibleForTodayRandom(at: now) })
@@ -145,6 +147,37 @@ struct HomeDashboard: View {
             .background(.background, in: RoundedRectangle(cornerRadius: 14))
     }
 
+}
+
+/// A random pick shows only the task's name and a way to finish it; full details stay in the editor.
+struct RandomPickSheet: View {
+    @EnvironmentObject private var store: ReminderStore
+    @Environment(\.dismiss) private var dismiss
+    let task: Reminder
+    @State private var completing = false
+    var body: some View {
+        VStack(spacing: 20) {
+            Label("Random pick", systemImage: "dice").font(.headline).foregroundStyle(.teal)
+            Text(task.title).font(.system(.title, design: .rounded).bold()).multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+            Button {
+                completing = true
+                Task {
+                    // Complete the latest saved version in case it synced while the sheet was open.
+                    await store.complete(store.reminders.first { $0.id == task.id } ?? task)
+                    dismiss()
+                }
+            } label: {
+                Label("Mark done", systemImage: "checkmark.circle").frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent).controlSize(.large).tint(.teal)
+            .disabled(completing)
+            Button("Not now") { dismiss() }.buttonStyle(.borderless).keyboardShortcut(.cancelAction)
+        }
+        .padding(28)
+        .frame(minWidth: 320, maxWidth: 420)
+        .presentationDetents([.medium])
+    }
 }
 
 private struct DashboardTaskCard: View {

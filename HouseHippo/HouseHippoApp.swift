@@ -619,6 +619,7 @@ struct TaskList: View {
     @AppStorage("househippo.person") private var person = Reminder.Owner.me.rawValue
     @State private var search = ""
     @State private var editing: Reminder?
+    @State private var randomPick: Reminder?
     @State private var scope = "Active"
     @State private var confirmExport = false
     @State private var importing = false
@@ -706,6 +707,7 @@ struct TaskList: View {
             }
             .sheet(isPresented: $importing) { ReminderImportSheet().frame(minWidth: 340, minHeight: 350) }
             .sheet(item: $editing) { ReminderEditor(reminder: $0).frame(minWidth: 340, minHeight: 500) }
+            .sheet(item: $randomPick) { RandomPickSheet(task: $0) }
             .confirmationDialog("Create new copies in Apple Reminders?", isPresented: $confirmExport, titleVisibility: .visible) {
                 Button("Export tasks") { Task { await store.exportReminders() } }
             } message: { Text("Each export creates new lists and copies. Flexible and custom schedules are saved in notes and need to be configured in Reminders.") }
@@ -716,7 +718,7 @@ struct TaskList: View {
             Section(title) {
                 if random {
                     Button("Pick a random task", systemImage: "dice") {
-                        editing = tasks.filter { !todayRandom || $0.isEligibleForTodayRandom() }.randomElement()
+                        randomPick = tasks.filter { !todayRandom || $0.isEligibleForTodayRandom() }.randomElement()
                     }
                         .disabled(!tasks.contains { !todayRandom || $0.isEligibleForTodayRandom(at: dashboardNow) })
                         .accessibilityLabel("Pick a random task from " + title)

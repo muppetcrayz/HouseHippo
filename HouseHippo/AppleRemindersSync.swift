@@ -18,12 +18,26 @@ import EventKit
             }
         }
         var result = Dictionary(items.map { ($0.calendarItemIdentifier, $0) }, uniquingKeysWith: { first, _ in first })
-        for checkpoint in known {
-            if let item = events.calendarItem(withIdentifier: checkpoint.sourceID) as? EKReminder { result[item.calendarItemIdentifier] = item }
-            if let external = checkpoint.externalID {
-                for case let item as EKReminder in events.calendarItems(withExternalIdentifier: external) { result[item.calendarItemIdentifier] = item }
-            }
+        // Each lookup is a synchronous round trip to the Reminders service. With a few hundred
+        // known tasks that blocked the main thread for seconds on every sync, so run them off it.
+        // Checkpoints and task records repeat the same identifiers; look each one up once.
+        var seenSources = Set<String>(), seenExternals = Set<String>()
+        let lookups = known.map { checkpoint in
+            (source: seenSources.insert(checkpoint.sourceID).inserted ? checkpoint.sourceID : nil,
+             external: checkpoint.externalID.flatMap { seenExternals.insert($0).inserted ? $0 : nil })
         }
+        let store = events
+        let found = await Task.detached(priority: .userInitiated) { () -> [EKReminder] in
+            var found: [EKReminder] = []
+            for lookup in lookups {
+                if let source = lookup.source, let item = store.calendarItem(withIdentifier: source) as? EKReminder { found.append(item) }
+                if let external = lookup.external {
+                    for case let item as EKReminder in store.calendarItems(withExternalIdentifier: external) { found.append(item) }
+                }
+            }
+            return found
+        }.value
+        for item in found { result[item.calendarItemIdentifier] = item }
         return Array(result.values)
     }
     static func listName(_ source: String) -> String {

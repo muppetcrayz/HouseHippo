@@ -1,8 +1,33 @@
 import Foundation
 import EventKit
 
+struct AppleRemindersWriteFailure: LocalizedError {
+    let operation: String
+    let underlying: Error
+    let movingLists: Bool
+
+    var errorDescription: String? {
+        let error = underlying as NSError
+        if error.domain == "com.apple.reminderkit", error.code == -3002, movingLists {
+            return "Apple Reminders refused to move this task between lists. Move it in Reminders, then sync again. The original reminder was kept."
+        }
+        return "Could not \(operation): \(error.localizedDescription) (\(error.domain), \(error.code)). This task will be retried; other tasks can still sync."
+    }
+}
+
 @MainActor final class AppleRemindersAdapter {
     let events = EKEventStore()
+    // Failed EventKit saves can leave dirty objects behind. Isolate writes from
+    // the read snapshot and reset this store between individual operations.
+    private let writes = EKEventStore()
+    private func write<T>(_ operation: String, movingLists: Bool = false, body: (EKEventStore) throws -> T) throws -> T {
+        writes.reset()
+        do { return try body(writes) }
+        catch {
+            writes.reset()
+            throw AppleRemindersWriteFailure(operation: operation, underlying: error, movingLists: movingLists)
+        }
+    }
     func authorize() async throws {
         guard try await events.requestFullAccessToReminders() else { throw Self.failure("Allow Reminders access in system settings") }
     }
@@ -40,19 +65,33 @@ import EventKit
         for item in found { result[item.calendarItemIdentifier] = item }
         return Array(result.values)
     }
-    static func listName(_ source: String) -> String {
+    nonisolated static func listName(_ source: String) -> String {
         switch source.lowercased() { case "personal recurring": return "Personal"; case "general recurring": return "Chores"; default: return source }
     }
-    func destination(for task: Reminder, settings: AppleSyncSettings) throws -> String {
-        let selected = calendars().filter { settings.calendarIDs.contains($0.calendarIdentifier) }
-        if let id = task.appleReminderCalendarID, let current = selected.first(where: { $0.calendarIdentifier == id }), Self.listName(current.title) == task.list, settings.calendarOwners[id] == task.owner.rawValue { return id }
-        let sameName = selected.filter { Self.listName($0.title) == task.list }
-        let sameOwner = sameName.filter { settings.calendarOwners[$0.calendarIdentifier] == task.owner.rawValue }
-        if sameOwner.count == 1 { return sameOwner[0].calendarIdentifier }
-        let owned = selected.filter { settings.calendarOwners[$0.calendarIdentifier] == task.owner.rawValue }
-        if owned.count == 1 { return owned[0].calendarIdentifier }
-        guard owned.contains(where: { $0.calendarIdentifier == settings.defaultCalendarID }) else { throw Self.failure("Choose an accessible Reminders list for " + task.owner.displayName + "; tasks will not be sent to another person's list") }
+    struct ListCandidate {
+        let id: String
+        let name: String
+    }
+    nonisolated static func destinationID(for task: Reminder, lists: [ListCandidate], settings: AppleSyncSettings) throws -> String {
+        let selected = lists.filter { settings.calendarIDs.contains($0.id) }
+        // Household assignment is not a request to move an existing Apple reminder.
+        if let id = task.appleReminderCalendarID,
+           selected.contains(where: { $0.id == id && listName($0.name) == task.list }) { return id }
+        let sameName = selected.filter { listName($0.name) == task.list }
+        if sameName.count == 1 { return sameName[0].id }
+        let sameOwner = sameName.filter { settings.calendarOwners[$0.id] == task.owner.rawValue }
+        if sameOwner.count == 1 { return sameOwner[0].id }
+        // A linked task must never silently fall back to an unrelated list.
+        if task.sourceID != nil || task.appleReminderCalendarID != nil || !sameName.isEmpty {
+            throw Self.failure("Choose an unambiguous Reminders list matching ‘" + task.list + "’. This task's existing Apple list has not been changed.")
+        }
+        let owned = selected.filter { settings.calendarOwners[$0.id] == task.owner.rawValue }
+        if owned.count == 1 { return owned[0].id }
+        guard owned.contains(where: { $0.id == settings.defaultCalendarID }) else { throw Self.failure("Choose an accessible Reminders list for " + task.owner.displayName + "; tasks will not be sent to another person's list") }
         return settings.defaultCalendarID
+    }
+    func destination(for task: Reminder, settings: AppleSyncSettings) throws -> String {
+        try Self.destinationID(for: task, lists: calendars().map { ListCandidate(id: $0.calendarIdentifier, name: $0.title) }, settings: settings)
     }
     func localValue(_ task: Reminder, settings: AppleSyncSettings) throws -> SyncedTaskValue {
         try Self.taskValue(task, calendarID: destination(for: task, settings: settings))
@@ -115,30 +154,38 @@ import EventKit
         }
     }
     func update(_ source: EKReminder, expected: SyncedTaskValue, desired: SyncedTaskValue, completionDate: Date? = nil) throws -> EKReminder {
-        guard let current = events.calendarItem(withIdentifier: source.calendarItemIdentifier) as? EKReminder, try value(current) == expected else { throw Self.failure("Reminder changed during sync; retrying without overwriting it") }
-        try set(desired, on: current, previous: expected)
-        if desired.completed, let completionDate { current.completionDate = completionDate }
-        do { try events.save(current, commit: true) } catch { events.reset(); throw error }
-        return current
+        try write("update reminder", movingLists: expected.calendarID != desired.calendarID) { store in
+            guard let current = store.calendarItem(withIdentifier: source.calendarItemIdentifier) as? EKReminder, try value(current) == expected else { throw Self.failure("Reminder changed during sync; retrying without overwriting it") }
+            try set(desired, on: current, in: store, previous: expected)
+            if desired.completed, let completionDate { current.completionDate = completionDate }
+            try store.save(current, commit: true)
+            return current
+        }
     }
     func create(taskID: UUID, desired: SyncedTaskValue) throws -> EKReminder {
-        let item = EKReminder(eventStore: events)
-        item.url = URL(string: "househippo://task/" + taskID.uuidString)
-        try set(desired, on: item)
-        do { try events.save(item, commit: true) } catch { events.reset(); throw error }
-        return item
+        try write("create reminder") { store in
+            let item = EKReminder(eventStore: store)
+            item.url = URL(string: "househippo://task/" + taskID.uuidString)
+            try set(desired, on: item, in: store)
+            try store.save(item, commit: true)
+            return item
+        }
     }
     func complete(_ source: EKReminder, expected: SyncedTaskValue, date: Date) throws {
-        guard let current = events.calendarItem(withIdentifier: source.calendarItemIdentifier) as? EKReminder, try value(current) == expected else { throw Self.failure("Reminder changed before completion") }
-        current.isCompleted = true; current.completionDate = date
-        do { try events.save(current, commit: true) } catch { events.reset(); throw error }
+        try write("complete reminder") { store in
+            guard let current = store.calendarItem(withIdentifier: source.calendarItemIdentifier) as? EKReminder, try value(current) == expected else { throw Self.failure("Reminder changed before completion") }
+            current.isCompleted = true; current.completionDate = date
+            try store.save(current, commit: true)
+        }
     }
     func delete(_ source: EKReminder, expected: SyncedTaskValue) throws {
-        guard let current = events.calendarItem(withIdentifier: source.calendarItemIdentifier) as? EKReminder, try value(current) == expected else { throw Self.failure("Reminder changed before deletion") }
-        do { try events.remove(current, commit: true) } catch { events.reset(); throw error }
+        try write("delete reminder") { store in
+            guard let current = store.calendarItem(withIdentifier: source.calendarItemIdentifier) as? EKReminder, try value(current) == expected else { throw Self.failure("Reminder changed before deletion") }
+            try store.remove(current, commit: true)
+        }
     }
-    private func set(_ value: SyncedTaskValue, on item: EKReminder, previous: SyncedTaskValue? = nil) throws {
-        guard let calendar = calendars().first(where: { $0.calendarIdentifier == value.calendarID }) else { throw Self.failure("Destination list is unavailable") }
+    private func set(_ value: SyncedTaskValue, on item: EKReminder, in store: EKEventStore, previous: SyncedTaskValue? = nil) throws {
+        guard let calendar = store.calendars(for: .reminder).first(where: { $0.calendarIdentifier == value.calendarID && $0.allowsContentModifications }) else { throw Self.failure("Destination list is unavailable") }
         let recurrenceChanged = previous == nil || previous?.rule != value.rule
         var replacementRule: EKRecurrenceRule?
         if recurrenceChanged, let raw = value.rule {

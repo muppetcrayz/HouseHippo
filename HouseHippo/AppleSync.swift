@@ -146,135 +146,141 @@ import EventKit
         for var task in freshTasks where task.syncsWithAppleReminders {
             try requireCurrentSettings(config)
             let key = "task." + task.id.uuidString
-            var checkpoint = checkpoints[key]
-            let sourceID = checkpoint?.sourceID ?? task.sourceID
-            let external = checkpoint?.externalID ?? task.appleReminderExternalID
-            let marker = "househippo://task/" + task.id.uuidString
-            let candidates = snapshot.filter {
-                $0.calendarItemIdentifier == sourceID || (external != nil && $0.calendarItemExternalIdentifier == external) || $0.url?.absoluteString == marker
-            }
-            let active = candidates.filter { !$0.isCompleted }
-            if active.count > 1 { conflict(key, title: task.title, message: "More than one Apple reminder matches this task. No duplicate was created.", local: task.title, remote: "Multiple matches", canChoose: false); continue }
-            let remote = active.first ?? candidates.first { candidate in
-                if let sourceID { return candidate.calendarItemIdentifier == sourceID }
-                return candidate.url?.absoluteString == marker
-            }
-            if let remote {
-                guard config.calendarIDs.contains(remote.calendar.calendarIdentifier) else {
-                    var paused = checkpoint ?? AppleSyncCheckpoint(sourceID: remote.calendarItemIdentifier, externalID: remote.calendarItemExternalIdentifier)
-                    paused.outOfScope = true
-                    checkpoints[key] = paused; try persist(); continue
+            do {
+                var checkpoint = checkpoints[key]
+                let sourceID = checkpoint?.sourceID ?? task.sourceID
+                let external = checkpoint?.externalID ?? task.appleReminderExternalID
+                let marker = "househippo://task/" + task.id.uuidString
+                let candidates = snapshot.filter {
+                    $0.calendarItemIdentifier == sourceID || (external != nil && $0.calendarItemExternalIdentifier == external) || $0.url?.absoluteString == marker
                 }
-                checkpoint?.outOfScope = false
-                bound.insert(remote.calendarItemIdentifier)
-                task.appleReminderCalendarID = task.appleReminderCalendarID ?? remote.calendar.calendarIdentifier
-                task.appleReminderExternalID = remote.calendarItemExternalIdentifier
-            }
-            if remote == nil {
-                if checkpoint?.outOfScope == true { continue }
-                if let oldList = task.appleReminderCalendarID, !config.calendarIDs.contains(oldList) { continue }
-            }
-            let localValue: SyncedTaskValue?
-            do { localValue = task.deletedAt == nil ? try reminders.localValue(task, settings: config) : nil }
-            catch { conflict(key, title: task.title, message: error.localizedDescription, local: task.summary, remote: "Schedule not changed", canChoose: false); continue }
-            let remoteValue: SyncedTaskValue?
-            do { remoteValue = try remote.map { try reminders.value($0) } }
-            catch { conflict(key, title: task.title, message: error.localizedDescription, local: task.summary, remote: "Apple repeat needs review", canChoose: false); continue }
-            // Historical completed imports may be removed only after checking the actual
-            // Apple record. Never create a completed backfill or discard an unsynced edit.
-            if task.canRetireCompletion, task.deletedAt == nil, let localValue,
-               remoteValue == localValue, localValue.rule == nil, checkpoint?.pendingCompletion == nil {
-                try cloud.retireCompletedTask(task)
-                checkpoints.removeValue(forKey: key); try persist(); continue
-            }
-            if checkpoint == nil && task.completed && task.history.isEmpty && task.deletedAt == nil { continue }
-            if sourceID == nil && remote == nil {
-                guard let localValue else { continue }
-                let created = try reminders.create(taskID: task.id, desired: localValue)
-                task.sourceID = created.calendarItemIdentifier; task.appleReminderExternalID = created.calendarItemExternalIdentifier; task.appleReminderCalendarID = created.calendar.calendarIdentifier
-                try cloud.save(task)
-                checkpoints[key] = AppleSyncCheckpoint(sourceID: created.calendarItemIdentifier, externalID: created.calendarItemExternalIdentifier, base: try appleSyncData(try reminders.value(created)), lastCompletion: task.lastCompleted)
-                bound.insert(created.calendarItemIdentifier); try persist()
-                if task.canRetireCompletion, localValue.rule == nil, try reminders.value(created) == localValue {
+                let active = candidates.filter { !$0.isCompleted }
+                if active.count > 1 { conflict(key, title: task.title, message: "More than one Apple reminder matches this task. No duplicate was created.", local: task.title, remote: "Multiple matches", canChoose: false); continue }
+                let remote = active.first ?? candidates.first { candidate in
+                    if let sourceID { return candidate.calendarItemIdentifier == sourceID }
+                    return candidate.url?.absoluteString == marker
+                }
+                if let remote {
+                    guard config.calendarIDs.contains(remote.calendar.calendarIdentifier) else {
+                        var paused = checkpoint ?? AppleSyncCheckpoint(sourceID: remote.calendarItemIdentifier, externalID: remote.calendarItemExternalIdentifier)
+                        paused.outOfScope = true
+                        checkpoints[key] = paused; try persist(); continue
+                    }
+                    checkpoint?.outOfScope = false
+                    bound.insert(remote.calendarItemIdentifier)
+                    task.appleReminderCalendarID = task.appleReminderCalendarID ?? remote.calendar.calendarIdentifier
+                    task.appleReminderExternalID = remote.calendarItemExternalIdentifier
+                }
+                if remote == nil {
+                    if checkpoint?.outOfScope == true { continue }
+                    if let oldList = task.appleReminderCalendarID, !config.calendarIDs.contains(oldList) { continue }
+                }
+                let localValue: SyncedTaskValue?
+                do { localValue = task.deletedAt == nil ? try reminders.localValue(task, settings: config) : nil }
+                catch { conflict(key, title: task.title, message: error.localizedDescription, local: task.summary + "\nList: " + task.list + "\nFor: " + task.owner.displayName, remote: "Schedule not changed", canChoose: false); continue }
+                let remoteValue: SyncedTaskValue?
+                do { remoteValue = try remote.map { try reminders.value($0) } }
+                catch { conflict(key, title: task.title, message: error.localizedDescription, local: task.summary, remote: "Apple repeat needs review", canChoose: false); continue }
+                // Historical completed imports may be removed only after checking the actual
+                // Apple record. Never create a completed backfill or discard an unsynced edit.
+                if task.canRetireCompletion, task.deletedAt == nil, let localValue,
+                   remoteValue == localValue, localValue.rule == nil, checkpoint?.pendingCompletion == nil {
+                    try cloud.retireCompletedTask(task)
+                    checkpoints.removeValue(forKey: key); try persist(); continue
+                }
+                if checkpoint == nil && task.completed && task.history.isEmpty && task.deletedAt == nil { continue }
+                if sourceID == nil && remote == nil {
+                    guard let localValue else { continue }
+                    let created = try reminders.create(taskID: task.id, desired: localValue)
+                    task.sourceID = created.calendarItemIdentifier; task.appleReminderExternalID = created.calendarItemExternalIdentifier; task.appleReminderCalendarID = created.calendar.calendarIdentifier
+                    try cloud.save(task)
+                    checkpoints[key] = AppleSyncCheckpoint(sourceID: created.calendarItemIdentifier, externalID: created.calendarItemExternalIdentifier, base: try appleSyncData(try reminders.value(created)), lastCompletion: task.lastCompleted)
+                    bound.insert(created.calendarItemIdentifier); try persist()
+                    if task.canRetireCompletion, localValue.rule == nil, try reminders.value(created) == localValue {
+                        try cloud.retireCompletedTask(task)
+                        checkpoints.removeValue(forKey: key); try persist()
+                    }
+                    continue
+                }
+                if checkpoint == nil { checkpoint = AppleSyncCheckpoint(sourceID: remote?.calendarItemIdentifier ?? sourceID!, externalID: external) }
+                let localData = try localValue.map(appleSyncData)
+                let remoteData = try remoteValue.map(appleSyncData)
+                if remote == nil && localData != nil {
+                    if !confirmedMissing(&checkpoint!) { checkpoints[key] = checkpoint; try persist(); continue }
+                } else { checkpoint!.missingSince = nil }
+                // A repeating completion is an acknowledged event, not merely a due-date edit.
+                if let pending = checkpoint!.pendingCompletion, let remote, let remoteValue, let localValue {
+                    if remoteValue == localValue && !remote.isCompleted {
+                        checkpoint!.pendingCompletion = nil; checkpoint!.lastCompletion = pending; checkpoint!.base = localData
+                    } else if remote.isCompleted {
+                        conflict(key, title: task.title, message: "Waiting for Apple Reminders to expose the next repeating occurrence.", local: task.summary, remote: "Completed occurrence", canChoose: false)
+                        checkpoints[key] = checkpoint; try persist(); continue
+                    } else if remote.calendarItemIdentifier != checkpoint!.sourceID {
+                        _ = try reminders.update(remote, expected: remoteValue, desired: localValue)
+                        checkpoint!.pendingCompletion = nil; checkpoint!.lastCompletion = pending; checkpoint!.base = localData
+                    } else if remoteData == checkpoint!.base {
+                        try reminders.complete(remote, expected: remoteValue, date: pending)
+                        checkpoints[key] = checkpoint; try persist(); again = true; continue
+                    } else {
+                        conflict(key, title: task.title, message: "A repeating task changed while its completion was being synced.", local: task.summary, remote: remoteValue.description, canChoose: false)
+                        checkpoints[key] = checkpoint; try persist(); continue
+                    }
+                }
+                let action = try decision(key, base: checkpoint!.base, local: localData, remote: remoteData)
+                switch action {
+                case .conflict:
+                    conflict(key, title: task.title, message: checkpoint!.base == nil ? "Initial task versions differ. Choose which to keep." : "Both apps changed this task since the last sync.", local: localValue.map { $0.description + "\nList: " + task.list } ?? "Deleted in HouseHippo", remote: remoteValue.map { $0.description + "\nList: " + (remote?.calendar.title ?? "Reminders") } ?? "Deleted or unavailable in Reminders")
+                case .push:
+                    if let remote, let remoteValue, let localValue {
+                        if localValue.rule != nil, !localValue.completed, let completion = task.lastCompleted,
+                           completion > (checkpoint!.lastCompletion ?? .distantPast) {
+                            checkpoint!.pendingCompletion = completion; checkpoints[key] = checkpoint; try persist()
+                            try reminders.complete(remote, expected: remoteValue, date: completion)
+                            again = true; continue
+                        }
+                        let updated = try reminders.update(remote, expected: remoteValue, desired: localValue, completionDate: task.lastCompleted)
+                        checkpoint!.sourceID = updated.calendarItemIdentifier; checkpoint!.externalID = updated.calendarItemExternalIdentifier
+                        checkpoint!.base = try appleSyncData(try reminders.value(updated)); checkpoint!.lastCompletion = task.lastCompleted
+                    } else if let remote, let remoteValue {
+                        try reminders.delete(remote, expected: remoteValue); checkpoint!.base = nil
+                    } else if let localValue {
+                        let created = try reminders.create(taskID: task.id, desired: localValue)
+                        checkpoint!.sourceID = created.calendarItemIdentifier; checkpoint!.externalID = created.calendarItemExternalIdentifier
+                        checkpoint!.base = try appleSyncData(try reminders.value(created))
+                    }
+                case .pull:
+                    if let remote, let remoteValue {
+                        let owner = config.calendarOwners[remote.calendar.calendarIdentifier].flatMap(Reminder.Owner.init(rawValue:)) ?? task.owner
+                        if let previous = snapshot.first(where: { $0.calendarItemIdentifier == checkpoint!.sourceID }), let date = previous.completionDate, date != task.lastCompleted {
+                            task.lastCompleted = date; if !task.history.contains(date) { task.history.append(date) }
+                        }
+                        reminders.apply(remoteValue, to: &task, source: remote, owner: owner)
+                        try cloud.save(task); checkpoint!.base = remoteData; checkpoint!.lastCompletion = task.lastCompleted
+                    } else { try cloud.delete(task); checkpoint!.base = nil }
+                case .acknowledge: checkpoint!.base = localData; checkpoint!.lastCompletion = task.lastCompleted
+                case .missing: break
+                }
+                if let remote {
+                    checkpoint!.sourceID = remote.calendarItemIdentifier; checkpoint!.externalID = remote.calendarItemExternalIdentifier
+                    task.sourceID = remote.calendarItemIdentifier
+                    task.appleReminderExternalID = remote.calendarItemExternalIdentifier
+                    // Save identity only if this operation did not delete the local task.
+                    if action != .pull || remoteValue != nil { try cloud.save(task) }
+                }
+                checkpoints[key] = checkpoint; try persist()
+                if action != .conflict, task.canRetireCompletion, task.deletedAt == nil,
+                   checkpoint?.pendingCompletion == nil,
+                   let base = checkpoint?.base,
+                   let confirmed = try? JSONDecoder().decode(SyncedTaskValue.self, from: base),
+                   confirmed.completed, confirmed.rule == nil {
                     try cloud.retireCompletedTask(task)
                     checkpoints.removeValue(forKey: key); try persist()
                 }
-                continue
+            } catch let error as AppleRemindersWriteFailure {
+                conflict(key, title: task.title, message: error.localizedDescription,
+                         local: task.summary, remote: "Apple write failed · will retry", canChoose: false)
             }
-            if checkpoint == nil { checkpoint = AppleSyncCheckpoint(sourceID: remote?.calendarItemIdentifier ?? sourceID!, externalID: external) }
-            let localData = try localValue.map(appleSyncData)
-            let remoteData = try remoteValue.map(appleSyncData)
-            if remote == nil && localData != nil {
-                if !confirmedMissing(&checkpoint!) { checkpoints[key] = checkpoint; try persist(); continue }
-            } else { checkpoint!.missingSince = nil }
-            // A repeating completion is an acknowledged event, not merely a due-date edit.
-            if let pending = checkpoint!.pendingCompletion, let remote, let remoteValue, let localValue {
-                if remoteValue == localValue && !remote.isCompleted {
-                    checkpoint!.pendingCompletion = nil; checkpoint!.lastCompletion = pending; checkpoint!.base = localData
-                } else if remote.isCompleted {
-                    conflict(key, title: task.title, message: "Waiting for Apple Reminders to expose the next repeating occurrence.", local: task.summary, remote: "Completed occurrence", canChoose: false)
-                    checkpoints[key] = checkpoint; try persist(); continue
-                } else if remote.calendarItemIdentifier != checkpoint!.sourceID {
-                    _ = try reminders.update(remote, expected: remoteValue, desired: localValue)
-                    checkpoint!.pendingCompletion = nil; checkpoint!.lastCompletion = pending; checkpoint!.base = localData
-                } else if remoteData == checkpoint!.base {
-                    try reminders.complete(remote, expected: remoteValue, date: pending)
-                    checkpoints[key] = checkpoint; try persist(); again = true; continue
-                } else {
-                    conflict(key, title: task.title, message: "A repeating task changed while its completion was being synced.", local: task.summary, remote: remoteValue.description, canChoose: false)
-                    checkpoints[key] = checkpoint; try persist(); continue
-                }
-            }
-            let action = try decision(key, base: checkpoint!.base, local: localData, remote: remoteData)
-            switch action {
-            case .conflict:
-                conflict(key, title: task.title, message: checkpoint!.base == nil ? "Initial task versions differ. Choose which to keep." : "Both apps changed this task since the last sync.", local: localValue.map { $0.description + "\nList: " + task.list } ?? "Deleted in HouseHippo", remote: remoteValue.map { $0.description + "\nList: " + (remote?.calendar.title ?? "Reminders") } ?? "Deleted or unavailable in Reminders")
-            case .push:
-                if let remote, let remoteValue, let localValue {
-                    if localValue.rule != nil, !localValue.completed, let completion = task.lastCompleted,
-                       completion > (checkpoint!.lastCompletion ?? .distantPast) {
-                        checkpoint!.pendingCompletion = completion; checkpoints[key] = checkpoint; try persist()
-                        try reminders.complete(remote, expected: remoteValue, date: completion)
-                        again = true; continue
-                    }
-                    let updated = try reminders.update(remote, expected: remoteValue, desired: localValue, completionDate: task.lastCompleted)
-                    checkpoint!.sourceID = updated.calendarItemIdentifier; checkpoint!.externalID = updated.calendarItemExternalIdentifier
-                    checkpoint!.base = try appleSyncData(try reminders.value(updated)); checkpoint!.lastCompletion = task.lastCompleted
-                } else if let remote, let remoteValue {
-                    try reminders.delete(remote, expected: remoteValue); checkpoint!.base = nil
-                } else if let localValue {
-                    let created = try reminders.create(taskID: task.id, desired: localValue)
-                    checkpoint!.sourceID = created.calendarItemIdentifier; checkpoint!.externalID = created.calendarItemExternalIdentifier
-                    checkpoint!.base = try appleSyncData(try reminders.value(created))
-                }
-            case .pull:
-                if let remote, let remoteValue {
-                    let owner = config.calendarOwners[remote.calendar.calendarIdentifier].flatMap(Reminder.Owner.init(rawValue:)) ?? task.owner
-                    if let previous = snapshot.first(where: { $0.calendarItemIdentifier == checkpoint!.sourceID }), let date = previous.completionDate, date != task.lastCompleted {
-                        task.lastCompleted = date; if !task.history.contains(date) { task.history.append(date) }
-                    }
-                    reminders.apply(remoteValue, to: &task, source: remote, owner: owner)
-                    try cloud.save(task); checkpoint!.base = remoteData; checkpoint!.lastCompletion = task.lastCompleted
-                } else { try cloud.delete(task); checkpoint!.base = nil }
-            case .acknowledge: checkpoint!.base = localData; checkpoint!.lastCompletion = task.lastCompleted
-            case .missing: break
-            }
-            if let remote {
-                checkpoint!.sourceID = remote.calendarItemIdentifier; checkpoint!.externalID = remote.calendarItemExternalIdentifier
-                task.sourceID = remote.calendarItemIdentifier
-                task.appleReminderExternalID = remote.calendarItemExternalIdentifier
-                // Save identity only if this operation did not delete the local task.
-                if action != .pull || remoteValue != nil { try cloud.save(task) }
-            }
-            checkpoints[key] = checkpoint; try persist()
-            if action != .conflict, task.canRetireCompletion, task.deletedAt == nil,
-               checkpoint?.pendingCompletion == nil,
-               let base = checkpoint?.base,
-               let confirmed = try? JSONDecoder().decode(SyncedTaskValue.self, from: base),
-               confirmed.completed, confirmed.rule == nil {
-                try cloud.retireCompletedTask(task)
-                checkpoints.removeValue(forKey: key); try persist()
-            }
+
         }
         let current = try cloud.tasks(includeDeleted: true)
         for remote in snapshot where !remote.isCompleted && config.calendarIDs.contains(remote.calendar.calendarIdentifier) && !bound.contains(remote.calendarItemIdentifier) {
@@ -333,105 +339,154 @@ struct AppleSyncControls: View {
 
 struct AppleSyncSettingsView: View {
     @ObservedObject private var sync = AppleSyncService.shared
+    @EnvironmentObject private var store: ReminderStore
     @Environment(\.dismiss) private var dismiss
     @State private var config = AppleSyncSettings()
     @State private var calendars: [EKCalendar] = []
     @State private var loading = false
     @State private var issue: String?
+    @State private var editingTask: Reminder?
     var body: some View {
         NavigationStack {
-            Form {
-                #if os(macOS)
-                Section {
-                    Text("Two-way sync runs on this Mac while HouseHippo is open. Additions, edits, task completion and deletions sync both ways. Task notes stay in HouseHippo and sync through iCloud between your devices.").font(.callout)
-                    Text("Flexible tasks stay in HouseHippo, including their edits and completions. They are not sent back to Apple Reminders. Existing Apple copies are left unchanged.").font(.caption).foregroundStyle(.secondary)
-                    Text("Only lists available to this Mac's Apple Account can sync. Assign each list to Sage, Dan or Shared; tasks are never sent to another person's list.").font(.caption).foregroundStyle(.secondary)
-                    Button(loading ? "Loading…" : "Choose Reminders lists") {
-                        loading = true
-                        Task {
-                            do {
-                                try await sync.reminders.authorize()
-                                calendars = sync.reminders.calendars()
-                                for calendar in calendars where config.calendarOwners[calendar.calendarIdentifier] == nil {
-                                    let personal = calendar.title.lowercased().contains("personal")
-                                    config.calendarOwners[calendar.calendarIdentifier] = personal ? (UserDefaults.standard.string(forKey: "househippo.person") ?? Reminder.Owner.me.rawValue) : Reminder.Owner.shared.rawValue
-                                }
-                            } catch { issue = error.localizedDescription }
-                            loading = false
-                        }
-                    }.disabled(loading)
-                    if let issue { Text(issue).foregroundStyle(.red) }
-                }
-                if !calendars.isEmpty {
-                    Section("Reminders lists to sync") {
-                        ForEach(calendars, id: \.calendarIdentifier) { calendar in
-                            Toggle(calendar.title + " · " + calendar.source.title, isOn: Binding(get: { config.calendarIDs.contains(calendar.calendarIdentifier) }, set: { selected in
-                                config.calendarIDs.removeAll { $0 == calendar.calendarIdentifier }
-                                if selected { config.calendarIDs.append(calendar.calendarIdentifier) }
-                            }))
-                            if config.calendarIDs.contains(calendar.calendarIdentifier) {
-                                Picker("Tasks belong to", selection: Binding(get: { config.calendarOwners[calendar.calendarIdentifier] ?? Reminder.Owner.shared.rawValue }, set: { config.calendarOwners[calendar.calendarIdentifier] = $0 })) {
-                                    ForEach(Reminder.Owner.allCases, id: \.rawValue) { Text($0.displayName).tag($0.rawValue) }
+            ScrollViewReader { scroll in
+                Form {
+                    #if os(macOS)
+                    Section {
+                        Text("Two-way sync runs on this Mac while HouseHippo is open. Additions, edits, task completion and deletions sync both ways. Task notes stay in HouseHippo and sync through iCloud between your devices.").font(.callout)
+                        Text("Flexible tasks stay in HouseHippo, including their edits and completions. They are not sent back to Apple Reminders. Existing Apple copies are left unchanged.").font(.caption).foregroundStyle(.secondary)
+                        Text("Only lists available to this Mac's Apple Account can sync. Assign each list to Sage, Dan or Shared; tasks are never sent to another person's list.").font(.caption).foregroundStyle(.secondary)
+                        Button(loading ? "Loading…" : "Choose Reminders lists") {
+                            Task { await loadCalendars() }
+                        }.disabled(loading)
+                        if let issue { Text(issue).foregroundStyle(.red) }
+                    }
+                    .id("reminders-list-settings")
+                    if !calendars.isEmpty {
+                        Section("Reminders lists to sync") {
+                            ForEach(calendars, id: \.calendarIdentifier) { calendar in
+                                Toggle(calendar.title + " · " + calendar.source.title, isOn: Binding(get: { config.calendarIDs.contains(calendar.calendarIdentifier) }, set: { selected in
+                                    config.calendarIDs.removeAll { $0 == calendar.calendarIdentifier }
+                                    if selected { config.calendarIDs.append(calendar.calendarIdentifier) }
+                                }))
+                                if config.calendarIDs.contains(calendar.calendarIdentifier) {
+                                    Picker("Tasks belong to", selection: Binding(get: { config.calendarOwners[calendar.calendarIdentifier] ?? Reminder.Owner.shared.rawValue }, set: { config.calendarOwners[calendar.calendarIdentifier] = $0 })) {
+                                        ForEach(Reminder.Owner.allCases, id: \.rawValue) { Text($0.displayName).tag($0.rawValue) }
+                                    }
                                 }
                             }
-                        }
-                        Picker("Default list for new tasks", selection: $config.defaultCalendarID) {
-                            Text("Choose a list").tag("")
-                            ForEach(calendars.filter { config.calendarIDs.contains($0.calendarIdentifier) }, id: \.calendarIdentifier) { Text($0.title).tag($0.calendarIdentifier) }
-                        }
-                    }
-                }
-                Section {
-                    Toggle("Enable two-way Apple sync", isOn: $config.enabled)
-                    Text(sync.status).font(.caption)
-                    if !config.deviceID.isEmpty && config.deviceID != sync.deviceID {
-                        Text("Apple Reminders sync is assigned to a previous installation or another Mac. If this Mac should handle it now, select Use this Mac. Keep the previous installation closed.")
-                            .font(.caption).foregroundStyle(.secondary)
-                        Button("Use this Mac") {
-                            do { try sync.useThisMac(); config = sync.settings(); issue = nil }
-                            catch { issue = error.localizedDescription }
-                        }.disabled(sync.busy)
-                    }
-                    Button("Sync now") { sync.request() }.disabled(sync.busy || config.deviceID != sync.deviceID)
-                }
-                #else
-                Section { Text("Configure Apple Reminders sync on your Mac. HouseHippo changes made here reach that Mac through iCloud; keep the Mac app open for the Apple-app bridge to run.") }
-                #endif
-                if !sync.conflicts.isEmpty {
-                    Section("Sync items needing attention") {
-                        ForEach(sync.conflicts) { conflict in
-                            DisclosureGroup(conflict.title) {
-                                Text(conflict.explanation)
-                                Text("HouseHippo").font(.headline); Text(conflict.local).textSelection(.enabled)
-                                Text("Apple app").font(.headline); Text(conflict.remote).textSelection(.enabled)
-                                if conflict.canChoose {
-                                    if conflict.allowPush { Button(conflict.localActionTitle ?? "Use HouseHippo version") { sync.resolve(conflict, using: .push) } }
-                                    if conflict.allowPull { Button(conflict.remoteActionTitle ?? "Use Apple version") { sync.resolve(conflict, using: .pull) } }
-                                }
+                            Picker("Default list for new tasks", selection: $config.defaultCalendarID) {
+                                Text("Choose a list").tag("")
+                                ForEach(calendars.filter { config.calendarIDs.contains($0.calendarIdentifier) }, id: \.calendarIdentifier) { Text($0.title).tag($0.calendarIdentifier) }
                             }
                         }
                     }
-                }
-            }.formStyle(.grouped)
+                    Section {
+                        Toggle("Enable two-way Apple sync", isOn: $config.enabled)
+                        Text(sync.status).font(.caption)
+                        if !config.deviceID.isEmpty && config.deviceID != sync.deviceID {
+                            Text("Apple Reminders sync is assigned to a previous installation or another Mac. If this Mac should handle it now, select Use this Mac. Keep the previous installation closed.")
+                                .font(.caption).foregroundStyle(.secondary)
+                            Button("Use this Mac") {
+                                do { try sync.useThisMac(); config = sync.settings(); issue = nil }
+                                catch { issue = error.localizedDescription }
+                            }.disabled(sync.busy)
+                        }
+                        Button("Save settings and sync") { saveSettings(close: false) }.disabled(sync.busy || loading)
+                    }
+                    #else
+                    Section { Text("Configure Apple Reminders sync on your Mac. HouseHippo changes made here reach that Mac through iCloud; keep the Mac app open for the Apple-app bridge to run.") }
+                    #endif
+                    if !sync.conflicts.isEmpty {
+                        Section("Sync items needing attention") {
+                            ForEach(sync.conflicts) { conflict in
+                                DisclosureGroup(conflict.title) {
+                                    Text(conflict.explanation)
+                                    Text("HouseHippo").font(.headline); Text(conflict.local).textSelection(.enabled)
+                                    Text("Apple app").font(.headline); Text(conflict.remote).textSelection(.enabled)
+                                    #if os(macOS)
+                                    if let task = task(for: conflict) {
+                                        Button("Edit task", systemImage: "pencil") { editingTask = task }
+                                    }
+                                    Button("Review list settings", systemImage: "list.bullet") {
+                                        withAnimation { scroll.scrollTo("reminders-list-settings", anchor: .top) }
+                                        if calendars.isEmpty { Task { await loadCalendars() } }
+                                    }
+                                    Button("Save settings and retry", systemImage: "arrow.clockwise") {
+                                        saveSettings(close: false)
+                                    }.disabled(sync.busy || loading)
+                                    #endif
+                                    if conflict.canChoose {
+                                        if conflict.allowPush { Button(conflict.localActionTitle ?? "Use HouseHippo version") { sync.resolve(conflict, using: .push) } }
+                                        if conflict.allowPull { Button(conflict.remoteActionTitle ?? "Use Apple version") { sync.resolve(conflict, using: .pull) } }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }.formStyle(.grouped)
+            }
+            .sheet(item: $editingTask, onDismiss: { sync.request() }) { task in
+                ReminderEditor(reminder: task).frame(minWidth: 340, minHeight: 500)
+            }
             .navigationTitle("Apple Reminders sync")
-            .onAppear { config = sync.settings(); sync.start() }
+            .onAppear {
+                config = sync.settings(); sync.start()
+                #if os(macOS)
+                if EKEventStore.authorizationStatus(for: .reminder) == .fullAccess { refreshCalendars() }
+                #endif
+            }
+            .alert("Could not update Reminders sync", isPresented: Binding(get: { issue != nil }, set: { if !$0 { issue = nil } })) {
+                Button("OK") { issue = nil }
+            } message: { Text(issue ?? "") }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Close") { dismiss() } }
                 #if os(macOS)
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") {
-                        do {
-                            if config.enabled {
-                                guard config.calendarIDs.contains(config.defaultCalendarID) else { issue = "Choose Reminders lists and a default task list first."; return }
-                                guard config.deviceID.isEmpty || config.deviceID == sync.deviceID else { issue = "Select Use this Mac to move Apple Reminders sync from the previous installation or Mac, then save."; return }
-                                config.deviceID = sync.deviceID
-                            }
-                            try sync.saveSettings(config); dismiss()
-                        } catch { issue = error.localizedDescription }
+                        saveSettings(close: true)
                     }
                 }
                 #endif
             }
         }
     }
+    private func task(for conflict: AppleSyncConflict) -> Reminder? {
+        guard conflict.id.hasPrefix("task."),
+              let id = UUID(uuidString: String(conflict.id.dropFirst(5))) else { return nil }
+        return store.reminders.first { $0.id == id && $0.deletedAt == nil }
+    }
+    #if os(macOS)
+    private func refreshCalendars() {
+        calendars = sync.reminders.calendars()
+        for calendar in calendars where config.calendarOwners[calendar.calendarIdentifier] == nil {
+            let personal = calendar.title.lowercased().contains("personal")
+            config.calendarOwners[calendar.calendarIdentifier] = personal
+                ? (UserDefaults.standard.string(forKey: "househippo.person") ?? Reminder.Owner.me.rawValue)
+                : Reminder.Owner.shared.rawValue
+        }
+    }
+    private func loadCalendars() async {
+        guard !loading else { return }
+        loading = true
+        defer { loading = false }
+        do {
+            try await sync.reminders.authorize()
+            refreshCalendars()
+            issue = nil
+        } catch { issue = error.localizedDescription }
+    }
+    private func saveSettings(close: Bool) {
+        do {
+            if config.enabled {
+                guard config.calendarIDs.contains(config.defaultCalendarID) else { issue = "Choose Reminders lists and a default task list first."; return }
+                guard config.deviceID.isEmpty || config.deviceID == sync.deviceID else { issue = "Select Use this Mac to move Apple Reminders sync from the previous installation or Mac, then save."; return }
+                config.deviceID = sync.deviceID
+            }
+            try sync.saveSettings(config)
+            issue = nil
+            if close { dismiss() }
+        } catch { issue = error.localizedDescription }
+    }
+    #endif
+
 }

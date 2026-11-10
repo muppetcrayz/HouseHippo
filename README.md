@@ -32,6 +32,7 @@ Run focused checks on macOS with Xcode's Swift compiler installed:
 python3 Tests/check_schedule.py
 python3 Tests/check_storage.py
 python3 Tests/check_sync_policy.py
+python3 Tests/check_sync_failures.py
 python3 Tests/check_household_repair.py
 ```
 

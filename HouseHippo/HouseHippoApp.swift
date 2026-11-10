@@ -226,7 +226,7 @@ struct Reminder: Identifiable, Codable, Equatable {
         case .monthly:
             let cycle = monthlyStep == 1 ? "Monthly" : "Every \(monthlyStep) months"
             return cycle + (monthlyOnLastDay == true ? " on the last day" : " on day \(monthlyDay ?? Calendar.current.component(.day, from: recurrenceAnchor ?? date))") + timeSuffix
-        case .custom: return "Every \(interval) \(unit.rawValue), starting \(date.formatted(date: .abbreviated, time: isAllDay ? .omitted : .shortened))"
+        case .custom: return "Every \(interval) \(unit.rawValue)\(timeSuffix)"
         }
     }
 }
@@ -578,6 +578,8 @@ struct HouseHippoHome: View {
     @EnvironmentObject private var store: ReminderStore
     @AppStorage("househippo.person") private var person = Reminder.Owner.me.rawValue
     @State private var selectedTab = 2
+    @State private var taskScope = "Active"
+    @State private var completedTasksRequest = 0
     var body: some View {
         Group {
             #if os(macOS)
@@ -595,16 +597,16 @@ struct HouseHippoHome: View {
                 }.navigationSplitViewColumnWidth(min: 170, ideal: 200, max: 250)
             } detail: {
                 switch selectedTab {
-                case 1: TaskList(mode: .tasks)
-                case 2: HomeDashboard(navigate: { selectedTab = $0 })
+                case 1: TaskList(scope: $taskScope, completedTasksRequest: completedTasksRequest, mode: .tasks)
+                case 2: HomeDashboard(navigate: { selectedTab = $0 }, showCompletedTasks: showCompletedTasks)
                 default: MealsView()
                 }
             }.navigationSplitViewStyle(.balanced)
             #else
         TabView(selection: $selectedTab) {
-            TaskList(mode: .notifications).tabItem { Label("Notifications", systemImage: "bell") }.tag(0)
-            TaskList(mode: .tasks).tabItem { Label("Tasks", systemImage: "checklist") }.tag(1)
-            HomeDashboard(navigate: { selectedTab = $0 }).tabItem { Label("Dashboard", systemImage: "house") }.tag(2)
+            TaskList(scope: .constant("Active"), mode: .notifications).tabItem { Label("Notifications", systemImage: "bell") }.tag(0)
+            TaskList(scope: $taskScope, completedTasksRequest: completedTasksRequest, mode: .tasks).tabItem { Label("Tasks", systemImage: "checklist") }.tag(1)
+            HomeDashboard(navigate: { selectedTab = $0 }, showCompletedTasks: showCompletedTasks).tabItem { Label("Dashboard", systemImage: "house") }.tag(2)
             MealsView().tabItem { Label("Meals", systemImage: "fork.knife") }.tag(5)
         }
             #endif
@@ -614,6 +616,12 @@ struct HouseHippoHome: View {
             Button("OK") { store.error = nil; store.transferStatus = nil }
         } message: { Text(store.error ?? store.transferStatus ?? "") }
     }
+    private func showCompletedTasks() {
+        taskScope = "Completed"
+        completedTasksRequest += 1
+        selectedTab = 1
+    }
+
 }
 
 enum TaskMode { case dashboard, tasks, notifications }
@@ -623,7 +631,8 @@ struct TaskList: View {
     @State private var search = ""
     @State private var editing: Reminder?
     @State private var randomPick: Reminder?
-    @State private var scope = "Active"
+    @Binding var scope: String
+    var completedTasksRequest = 0
     @State private var confirmExport = false
     @State private var importing = false
     @State private var dashboardNow = Date()
@@ -685,11 +694,20 @@ struct TaskList: View {
                 if mode == .dashboard {
                     taskSection("Today's Tasks", tasks: filtered.filter { !$0.isFlexibleTask || $0.deferredUntil != nil }, random: true, todayRandom: true)
                     taskSection("Flexible Tasks", tasks: filtered.filter { $0.isFlexibleTask && $0.deferredUntil == nil }, random: true)
-                } else { taskSection(mode == .notifications ? "Your notifications" : "Your reminders", tasks: filtered) }
+                } else if mode == .tasks {
+                    taskSection("Scheduled tasks", tasks: filtered.filter { !$0.isFlexibleTask })
+                    taskSection("Flexible tasks", tasks: filtered.filter { $0.isFlexibleTask })
+                } else {
+                    taskSection("Your notifications", tasks: filtered)
+                }
             }
             .navigationTitle(mode == .dashboard ? "HouseHippo" : mode == .tasks ? "Tasks" : "Notifications")
             .searchable(text: $search, prompt: "Search tasks and lists")
             .onAppear { dashboardNow = Date() }
+            .onChange(of: completedTasksRequest) { _, _ in
+                search = ""
+                dashboardNow = Date()
+            }
             .onReceive(Timer.publish(every: 60, on: .main, in: .common).autoconnect()) { date in
                 dashboardNow = date
             }
@@ -853,9 +871,6 @@ struct ReminderEditor: View {
                     Section { Button("Mark done", systemImage: "checkmark.circle") { Task { await store.complete(reminder); dismiss() } } }
                 }
                 TaskNoteSection(reminder: $reminder)
-                if !reminder.history.isEmpty {
-                    Section("Completion history") { ForEach(reminder.history.reversed(), id: \.self) { Text($0.formatted(date: .abbreviated, time: .shortened)) } }
-                }
             }.formStyle(.grouped)
             .navigationTitle(reminder.isNotification ? "Notification details" : "Task details")
             .onAppear { if reminder.isUnscheduled { reminder.frequency = .anytime } }
@@ -918,16 +933,47 @@ struct MealsView: View {
                 Section("Dinner · drag a day onto another to swap") {
                     ForEach(0..<7, id: \.self) { day in
                         HStack {
+                            #if os(macOS)
+                            Image(systemName: "line.3.horizontal")
+                                .foregroundStyle(.secondary)
+                                .frame(width: 24, height: 24)
+                                .contentShape(Rectangle())
+                                .help("Drag to another day to swap dinners")
+                                .onDrag {
+                                    let provider = NSItemProvider()
+                                    let payload = MealDayDrag(day: day, week: week)
+                                    provider.registerDataRepresentation(forTypeIdentifier: UTType.houseHippoMealDay.identifier, visibility: .ownProcess) { completion in
+                                        do { completion(try JSONEncoder().encode(payload), nil) }
+                                        catch { completion(nil, error) }
+                                        return nil
+                                    }
+                                    return provider
+                                }
+                            #endif
                             Text(Calendar.current.date(byAdding: .day, value: day, to: week)!.formatted(.dateTime.weekday(.abbreviated))).frame(width: 45)
                             TextField("What's for dinner?", text: $dinners[day])
                         }
                         .contentShape(Rectangle())
+                        #if os(macOS)
+                        .onDrop(of: [UTType.houseHippoMealDay], isTargeted: nil) { providers in
+                            guard let provider = providers.first else { return false }
+                            let destinationWeek = week
+                            provider.loadDataRepresentation(forTypeIdentifier: UTType.houseHippoMealDay.identifier) { data, _ in
+                                guard let data, let value = try? JSONDecoder().decode(MealDayDrag.self, from: data) else { return }
+                                DispatchQueue.main.async {
+                                    guard week == destinationWeek else { return }
+                                    _ = swapDinner(value, onto: day)
+                                }
+                            }
+                            return true
+                        }
+                        #else
                         .draggable(MealDayDrag(day: day, week: week))
                         .dropDestination(for: MealDayDrag.self) { values, _ in
-                            guard let value = values.first, value.week == week,
-                                  (0..<7).contains(value.day), value.day != day else { return false }
-                            dinners.swapAt(value.day, day); return true
+                            guard let value = values.first else { return false }
+                            return swapDinner(value, onto: day)
                         }
+                        #endif
                     }
                 }
                 Section("Grocery list") { GroceryView() }
@@ -955,6 +1001,12 @@ struct MealsView: View {
     private func moveWeek(_ offset: Int) {
         week = Calendar.current.date(byAdding: .weekOfYear, value: offset, to: week)!
         dinners = currentDinners
+    }
+    @discardableResult private func swapDinner(_ value: MealDayDrag, onto day: Int) -> Bool {
+        guard value.week == week, (0..<7).contains(value.day),
+              (0..<7).contains(day), value.day != day else { return false }
+        dinners.swapAt(value.day, day)
+        return true
     }
 }
 struct ReminderImportSheet: View {

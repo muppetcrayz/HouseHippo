@@ -11,6 +11,7 @@ struct HomeDashboard: View {
     @State private var randomPick: Reminder?
     @State private var connections = false
     var navigate: (Int) -> Void
+    var showCompletedTasks: () -> Void
     private var owner: Reminder.Owner { Reminder.Owner(rawValue: person) ?? .me }
     private var personalTasks: [Reminder] {
         store.reminders.filter { !$0.isNotification && ($0.owner == .shared || $0.owner == owner) }
@@ -39,7 +40,11 @@ struct HomeDashboard: View {
                     HStack(spacing: 10) {
                         metric("Today", value: today.count, icon: "sun.max", color: .teal)
                         metric("Flexible", value: flexible.count, icon: "leaf", color: .orange)
-                        metric("Done today", value: done, icon: "checkmark.circle", color: .green)
+                        Button(action: showCompletedTasks) {
+                            metric("Done today", value: done, icon: "checkmark.circle", color: .green)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityHint("Opens completed tasks in Tasks")
                     }
                     taskBoard("Today's Tasks", icon: "sun.max", tasks: today, accent: .teal, todayRandom: true)
                     taskBoard("Flexible Tasks", icon: "leaf", tasks: flexible, accent: .orange)

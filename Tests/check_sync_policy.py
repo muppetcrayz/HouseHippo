@@ -45,6 +45,30 @@ precondition(SyncedNoteValue.removingTitle("Body",title:"Title") == "Body")
 let pending=PendingAppleNoteCreation(value:payload,previouslyVisibleIDs:["already-here"])
 let restored=try JSONDecoder().decode(PendingAppleNoteCreation.self,from:appleSyncData(pending))
 precondition(restored.value == payload && restored.previouslyVisibleIDs == ["already-here"])
+// Assignment changes must not move an existing reminder out of its list.
+let lists = [AppleRemindersAdapter.ListCandidate(id: "shared", name: "General Recurring"),
+             AppleRemindersAdapter.ListCandidate(id: "personal", name: "Personal Recurring")]
+var settings = AppleSyncSettings()
+settings.calendarIDs = ["shared", "personal"]
+settings.defaultCalendarID = "personal"
+settings.calendarOwners = ["shared": Reminder.Owner.me.rawValue, "personal": Reminder.Owner.me.rawValue]
+var assigned = Reminder(title: "Shared chore", message: "", date: Date(), frequency: .daily)
+assigned.list = "Chores"; assigned.owner = .shared
+assigned.sourceID = "existing"; assigned.appleReminderCalendarID = "shared"
+let keptList = try AppleRemindersAdapter.destinationID(for: assigned, lists: lists, settings: settings)
+precondition(keptList == "shared")
+assigned.list = "Missing list"
+do {
+    _ = try AppleRemindersAdapter.destinationID(for: assigned, lists: lists, settings: settings)
+    fatalError("Linked reminder silently moved to an unrelated list")
+} catch {}
+assigned.list = "Personal"
+let explicitMove = try AppleRemindersAdapter.destinationID(for: assigned, lists: lists, settings: settings)
+precondition(explicitMove == "personal")
+let moveError = AppleRemindersWriteFailure(operation: "update reminder", underlying: NSError(domain: "com.apple.reminderkit", code: -3002), movingLists: true)
+precondition(moveError.localizedDescription.contains("Move it in Reminders"))
+let saveError = AppleRemindersWriteFailure(operation: "complete reminder", underlying: NSError(domain: "com.apple.reminderkit", code: -3002), movingLists: false)
+precondition(saveError.localizedDescription.contains("complete reminder") && !saveError.localizedDescription.contains("Move it"))
 struct Fixture:Decodable {let date:Double;let completed:Bool;let rule:String;let canonical:String}
 let fixtures=try JSONDecoder().decode([Fixture].self,from:Data(contentsOf:URL(fileURLWithPath:CommandLine.arguments[1])))
 for fixture in fixtures {

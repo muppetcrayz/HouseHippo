@@ -63,9 +63,10 @@ struct Reminder: Identifiable, Codable, Equatable {
     var isNotification: Bool { kind == .notification }
     var shouldNotify: Bool { isNotification && enabled && !completed && frequency != .anytime && hasDueDate != false }
     var owner: Owner = .shared
-    // Recovery copy of original imported text; editing uses a task-linked note.
+    // Retain original imported text for recovery; taskNote is the editable task content.
     var notes: String = ""
-    var linkedNoteID: UUID?
+    var taskNote: String?
+    var linkedNoteID: UUID? // Legacy migration only; never offered as a note picker.
     var notesMigrationVersion: Int?
     var list: String = "Home"
     var listRulesVersion: Int?
@@ -431,7 +432,8 @@ final class NotificationDelegate: NSObject, UNUserNotificationCenterDelegate {
                 item.calendar = calendar
                 item.title = task.title
                 let noteText: String?
-                if let id = task.linkedNoteID { noteText = try cloud.note(id: id)?.body }
+                if let embedded = task.taskNote { noteText = embedded }
+                else if let id = task.linkedNoteID { noteText = try cloud.note(id: id)?.body }
                 else { noteText = task.notesMigrationVersion != nil ? nil : task.notes }
                 item.notes = noteText?.isEmpty == false ? noteText : nil
                 item.isCompleted = task.completed
@@ -695,6 +697,7 @@ struct TaskList: View {
                 ToolbarItem(placement: .primaryAction) { Button(mode == .notifications ? "Add notification" : "Add task", systemImage: "plus") {
                     var item = Reminder(title: "", message: "", date: Date().addingTimeInterval(3600), frequency: .once)
                     item.kind = mode == .notifications ? .notification : .task
+                    item.allDay = mode != .notifications
                     editing = item
                 } }
                 if mode != .notifications {
@@ -849,7 +852,7 @@ struct ReminderEditor: View {
                 if !reminder.isNotification && !reminder.completed && store.reminders.contains(where: { $0.id == reminder.id }) {
                     Section { Button("Mark done", systemImage: "checkmark.circle") { Task { await store.complete(reminder); dismiss() } } }
                 }
-                TaskLinkedNoteSection(reminder: $reminder)
+                TaskNoteSection(reminder: $reminder)
                 if !reminder.history.isEmpty {
                     Section("Completion history") { ForEach(reminder.history.reversed(), id: \.self) { Text($0.formatted(date: .abbreviated, time: .shortened)) } }
                 }
@@ -874,6 +877,20 @@ struct ReminderEditor: View {
             }
         }
     }
+}
+
+// A private data type keeps editable text fields from consuming a day index as text on iOS.
+private struct MealDayDrag: Codable, Transferable {
+    let day: Int
+    let week: Date
+
+    static var transferRepresentation: some TransferRepresentation {
+        CodableRepresentation(contentType: .houseHippoMealDay)
+    }
+}
+
+private extension UTType {
+    static let houseHippoMealDay = UTType(exportedAs: "com.househippo.meal-day", conformingTo: .data)
 }
 
 struct MealsView: View {
@@ -904,10 +921,12 @@ struct MealsView: View {
                             Text(Calendar.current.date(byAdding: .day, value: day, to: week)!.formatted(.dateTime.weekday(.abbreviated))).frame(width: 45)
                             TextField("What's for dinner?", text: $dinners[day])
                         }
-                        .draggable(String(day))
-                        .dropDestination(for: String.self) { values, _ in
-                            guard let value = values.first, let from = Int(value), (0..<7).contains(from) else { return false }
-                            dinners.swapAt(from, day); return true
+                        .contentShape(Rectangle())
+                        .draggable(MealDayDrag(day: day, week: week))
+                        .dropDestination(for: MealDayDrag.self) { values, _ in
+                            guard let value = values.first, value.week == week,
+                                  (0..<7).contains(value.day), value.day != day else { return false }
+                            dinners.swapAt(value.day, day); return true
                         }
                     }
                 }

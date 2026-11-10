@@ -63,90 +63,56 @@ checks = r'''
         var importedNoteTask = Reminder(title: "Prayer list", message: "", date: Date(), frequency: .once)
         importedNoteTask.notes = "Original note from Reminders"
         try again.migrateTaskNote(&importedNoteTask)
-        precondition(importedNoteTask.linkedNoteID == importedNoteTask.id)
-        let linked = try again.note(id: importedNoteTask.linkedNoteID!)
-        precondition(linked?.body == "Original note from Reminders")
-        let noteCount = try again.notes().count
-        try again.migrateTaskNote(&importedNoteTask)
-        let noteCountAgain = try again.notes().count
-        precondition(noteCountAgain == noteCount)
-        var linkedEdit = linked!
-        linkedEdit.body = "Edited in Notes"
+        precondition(importedNoteTask.taskNote == importedNoteTask.notes && importedNoteTask.linkedNoteID == nil)
+        let noSeparateNote = try again.note(id: importedNoteTask.id)
+        precondition(noSeparateNote == nil)
+        let linkedEdit = HouseNote(title: "Old shared note", body: "Existing linked text\n🦛")
         try again.saveNote(linkedEdit)
-        let seenFromTask = try again.note(id: importedNoteTask.linkedNoteID!)
-        precondition(seenFromTask?.body == "Edited in Notes")
-        importedNoteTask.linkedNoteID = nil
-        try again.save(importedNoteTask)
-        try again.migrateTaskNote(&importedNoteTask)
-        precondition(importedNoteTask.linkedNoteID == nil) // Unlinking must not recreate the link.
-        let unlinkedNote = try again.note(id: linkedEdit.id); precondition(unlinkedNote != nil) // Unlinking keeps the note.
-        var emptyTask = Reminder(title: "No notes", message: "", date: Date(), frequency: .once)
-        try again.migrateTaskNote(&emptyTask)
-        precondition(emptyTask.linkedNoteID == nil)
+        var linkedTaskToMigrate = Reminder(title: "Linked task", message: "", date: Date(), frequency: .once)
+        linkedTaskToMigrate.linkedNoteID = linkedEdit.id
+        linkedTaskToMigrate.notesMigrationVersion = 1
+        try again.migrateTaskNote(&linkedTaskToMigrate)
+        precondition(linkedTaskToMigrate.taskNote == linkedEdit.body && linkedTaskToMigrate.linkedNoteID == nil)
+        var secondLinkedTask = Reminder(title: "Second task", message: "", date: Date(), frequency: .once)
+        secondLinkedTask.linkedNoteID = linkedEdit.id
+        try again.migrateTaskNote(&secondLinkedTask)
+        linkedTaskToMigrate.taskNote = "Edited inside task"
+        try again.save(linkedTaskToMigrate)
+        let savedEmbeddedTasks = try again.tasks()
+        precondition(savedEmbeddedTasks.contains { $0.id == linkedTaskToMigrate.id && $0.taskNote == "Edited inside task" })
+        let independentSource = try again.note(id: linkedEdit.id)
+        precondition(independentSource == linkedEdit && secondLinkedTask.taskNote == linkedEdit.body)
+        linkedTaskToMigrate.taskNote = ""
+        linkedTaskToMigrate.linkedNoteID = linkedEdit.id // Stale legacy link cannot refill cleared text.
+        try again.migrateTaskNote(&linkedTaskToMigrate)
+        precondition(linkedTaskToMigrate.taskNote == "" && linkedTaskToMigrate.linkedNoteID == nil)
+        try again.save(linkedTaskToMigrate)
+        let embeddedReload = CloudStore(directory: base, cloudEnabled: false, defaults: defaults, legacyDefaults: nil)
+        let persistedEmbeddedTasks = try embeddedReload.tasks()
+        precondition(persistedEmbeddedTasks.contains { $0.id == linkedTaskToMigrate.id && $0.taskNote == "" && $0.linkedNoteID == nil })
+        var pendingTask = Reminder(title: "Arrived before note", message: "", date: Date(), frequency: .once)
+        let lateNote = HouseNote(title: "Later note", body: "Keep late-arriving text")
+        pendingTask.linkedNoteID = lateNote.id
+        try again.migrateTaskNote(&pendingTask)
+        precondition(pendingTask.taskNote == nil && pendingTask.linkedNoteID == lateNote.id)
+        try again.saveNote(lateNote)
+        try again.migrateTaskNote(&pendingTask)
+        precondition(pendingTask.taskNote == lateNote.body && pendingTask.linkedNoteID == nil)
+        var unlinkedTask = Reminder(title: "Previously unlinked", message: "", date: Date(), frequency: .once)
+        unlinkedTask.notes = "Recovery text must not reappear"
+        unlinkedTask.notesMigrationVersion = 2
+        try again.migrateTaskNote(&unlinkedTask)
+        precondition(unlinkedTask.taskNote == "" && unlinkedTask.linkedNoteID == nil)
+        var completedTask = Reminder(title: "Completed task", message: "", date: Date(), frequency: .once)
+        completedTask.completed = true
+        completedTask.linkedNoteID = linkedEdit.id
+        try again.migrateTaskNote(&completedTask)
+        precondition(completedTask.taskNote == linkedEdit.body && completedTask.linkedNoteID == nil)
         var generatedOnly = Reminder(title: "Repeat", message: "", date: Date(), frequency: .once)
         generatedOnly.notes = "\n\nImported repeating reminder. Review its repeat schedule in HouseHippo. Original rule: RRULE FREQ=DAILY;INTERVAL=1"
         generatedOnly.matchImportedRecurrence()
         try again.migrateTaskNote(&generatedOnly)
-        precondition(generatedOnly.linkedNoteID == nil && generatedOnly.notes.isEmpty)
-        try again.migrateLegacyNotebook()
-        let notebookCount = try again.notes().count
-        try again.migrateLegacyNotebook()
-        let notebookCountAgain = try again.notes().count
-        precondition(notebookCount == notebookCountAgain)
-        var historical = Reminder(title: "Completed Waiting For item", message: "", date: Date(), frequency: .once)
-        historical.completed = true
-        historical.sourceID = "legacy-import"
-        historical.list = "Waiting For"
-        historical.notes = "Original source text"
-        try again.migrateTaskNote(&historical)
-        let notCreated = try again.note(id: historical.id)
-        precondition(notCreated == nil && historical.linkedNoteID == nil)
-        // Reproduce an untouched note created by the old migration.
-        try again.saveNote(HouseNote(id: historical.id, title: historical.title, body: historical.notes))
-        historical.linkedNoteID = historical.id
-        historical.notesMigrationVersion = 1
-        try again.migrateTaskNote(&historical)
-        let archived = try again.note(id: historical.id)
-        precondition(archived?.archived == true && archived?.body == "Original source text")
-        precondition(historical.linkedNoteID == nil && historical.notesMigrationVersion == 2)
-        let visibleNotes = try again.notes()
-        precondition(!visibleNotes.contains { $0.id == historical.id })
-        try again.migrateTaskNote(&historical)
-        precondition(historical.linkedNoteID == nil)
-        var editedHistorical = Reminder(title: "Edited historical", message: "", date: Date(), frequency: .once)
-        editedHistorical.completed = true
-        editedHistorical.sourceID = "legacy-import-edited"
-        editedHistorical.notes = "Original"
-        editedHistorical.linkedNoteID = editedHistorical.id
-        editedHistorical.notesMigrationVersion = 1
-        try again.saveNote(HouseNote(id: editedHistorical.id, title: editedHistorical.title, body: "User edited this note"))
-        try again.migrateTaskNote(&editedHistorical)
-        let preservedEdit = try again.note(id: editedHistorical.id)
-        precondition(preservedEdit?.archived != true && editedHistorical.linkedNoteID != nil)
-        var completedInApp = Reminder(title: "Actually used note", message: "", date: Date(), frequency: .once)
-        completedInApp.completed = true
-        completedInApp.sourceID = "imported-active-then-completed"
-        completedInApp.history = [Date()]
-        completedInApp.notes = "Keep this"
-        completedInApp.linkedNoteID = completedInApp.id
-        completedInApp.notesMigrationVersion = 1
-        try again.saveNote(HouseNote(id: completedInApp.id, title: completedInApp.title, body: completedInApp.notes))
-        try again.migrateTaskNote(&completedInApp)
-        let keptUsedNote = try again.note(id: completedInApp.id)
-        precondition(keptUsedNote?.archived != true)
-        var sharedHistorical = Reminder(title: "Reused original note", message: "", date: Date(), frequency: .once)
-        sharedHistorical.completed = true
-        sharedHistorical.sourceID = "imported-shared-note"
-        sharedHistorical.notes = "Shared note body"
-        sharedHistorical.linkedNoteID = sharedHistorical.id
-        sharedHistorical.notesMigrationVersion = 1
-        try again.saveNote(HouseNote(id: sharedHistorical.id, title: sharedHistorical.title, body: sharedHistorical.notes))
-        var activeReuse = Reminder(title: "Active reuse", message: "", date: Date(), frequency: .once)
-        activeReuse.linkedNoteID = sharedHistorical.id
-        try again.save(activeReuse)
-        try again.migrateTaskNote(&sharedHistorical)
-        let keptShared = try again.note(id: sharedHistorical.id)
-        precondition(keptShared?.archived != true && sharedHistorical.linkedNoteID != nil)
+        precondition(generatedOnly.taskNote == "" && generatedOnly.linkedNoteID == nil)
         let noteToDelete = HouseNote(title: "Delete me", body: "Original content")
         try again.saveNote(noteToDelete)
         var linkedTask = Reminder(title: "Keep task", message: "", date: Date(), frequency: .once)
@@ -159,12 +125,18 @@ checks = r'''
         precondition(!afterDeleteNotes.contains { $0.id == noteToDelete.id })
         let tombstone = try again.note(id: noteToDelete.id)
         precondition(tombstone?.deletedAt != nil)
+        var staleDeletedLink = Reminder(title: "Deleted note", message: "", date: Date(), frequency: .once)
+        staleDeletedLink.linkedNoteID = noteToDelete.id
+        staleDeletedLink.notes = "Do not resurrect this text"
+        try again.migrateTaskNote(&staleDeletedLink)
+        precondition(staleDeletedLink.taskNote == "" && staleDeletedLink.linkedNoteID == nil)
         do { try again.saveNote(noteToDelete); fatalError("Stale editor resurrected deleted note") } catch {}
         try again.deleteNote(id: noteToDelete.id) // Idempotent.
         try again.deleteNote(id: linkedEdit.id)
         importedNoteTask.linkedNoteID = linkedEdit.id // Simulate a stale task arriving from another device.
         try again.migrateTaskNote(&importedNoteTask)
         precondition(importedNoteTask.linkedNoteID == nil)
+        try again.migrateLegacyNotebook()
         try again.deleteNote(id: UUID(uuidString: "AA904DC3-3500-4B9D-B381-A454AF193F90")!)
         try again.migrateLegacyNotebook()
         let afterLegacyDelete = try again.notes()
@@ -304,8 +276,7 @@ checks = r'''
         print("Grocery checks passed: deterministic categories, phrase/token precedence, manual overrides, checkbox-text migration, independent item edits, deletion, no resurrection and reopen.")
         print("Apple Notes checks passed: exact text preservation, original HTML metadata, bulk import, unreadable/locked skips, source-ID deduplication, edited copy preservation, deleted copy protection and distinct same-title notes.")
         print("Deletion/meal checks passed: note removal, task unlinking, stale-editor protection, no resurrection, reopen, Saturday week boundaries, DST-safe dinner migration and preserved cleared dinners.")
-        print("Completed-note checks passed: no creation, recoverable cleanup, idempotence, edited notes kept, notes used in-app kept and active links kept.")
-        print("Note checks passed: original notes migrate once, blank/generated notes stay absent, linked edits propagate, unlink preserves the note and legacy notebook migration is idempotent.")
+        print("Task note checks passed: inline migration, independent task text, source preservation, cleared text stays empty, durable reopen, late CloudKit delivery and completed tasks.")
         let transferSuite = "HouseHippo.transfer." + UUID().uuidString
         let transferDefaults = UserDefaults(suiteName: transferSuite)!
         let transferBase = base.appendingPathComponent("transfer")

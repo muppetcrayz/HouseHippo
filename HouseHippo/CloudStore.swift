@@ -295,45 +295,24 @@ import CryptoKit
     }
 
     func migrateTaskNote(_ task: inout Reminder) throws {
-        if let linked = task.linkedNoteID, let existing = try note(id: linked), existing.deletedAt != nil {
+        // An explicit empty value is an intentional cleared note. Never refill it
+        // from a recovery copy or from a later edit to an old shared note.
+        if task.taskNote != nil {
             task.linkedNoteID = nil
-            task.notesMigrationVersion = 2
-        }
-        if task.completed {
-            // Repair only untouched notes made from historical completed imports by the old migration.
-            // A task completed inside HouseHippo has history and keeps its intentionally linked note.
-            if task.sourceID != nil, task.history.isEmpty, task.notesMigrationVersion == 1,
-               task.linkedNoteID == task.id, var existing = try note(id: task.id),
-               existing.deletedAt == nil, existing.title == task.title, existing.body == task.notes,
-               !tasksLinkToNote(task.id, excluding: task.id) {
-                existing.archived = true
-                existing.sourceTaskID = task.id
-                try saveNote(existing)
-                task.linkedNoteID = nil
-                task.notesMigrationVersion = 2
-            }
+            task.notesMigrationVersion = 3
             return
         }
-        guard task.notesMigrationVersion == nil,
-              !task.notes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-        // Deterministic ID makes migration safe to repeat on another device or after interruption.
-        let id = task.id
-        if let existing = try note(id: id), existing.deletedAt != nil {
-            task.notesMigrationVersion = 2
-            return
+        if let id = task.linkedNoteID {
+            // CloudKit may deliver a task before its old note. Preserve the link
+            // internally until its text arrives, rather than losing that text.
+            guard let existing = try note(id: id) else { return }
+            task.taskNote = existing.deletedAt == nil ? existing.body : ""
+        } else {
+            // Version 2 deliberately left imported Reminders notes unlinked.
+            task.taskNote = task.notesMigrationVersion == nil ? task.notes : ""
         }
-        if try note(id: id) == nil {
-            var imported = HouseNote(id: id, title: task.title, body: task.notes)
-            imported.sourceTaskID = id
-            try saveNote(imported)
-        }
-        if task.linkedNoteID == nil { task.linkedNoteID = id }
-        task.notesMigrationVersion = 1
-    }
-    private func tasksLinkToNote(_ noteID: UUID, excluding taskID: UUID) -> Bool {
-        // If the database cannot be read, preserve the note rather than hide it.
-        guard let tasks = try? tasks() else { return true }
-        return tasks.contains { $0.id != taskID && !$0.completed && $0.linkedNoteID == noteID }
+        task.linkedNoteID = nil
+        task.notesMigrationVersion = 3
     }
     func deleteNote(id: UUID) throws {
         guard var note = try note(id: id), note.deletedAt == nil else { return }

@@ -61,6 +61,15 @@ struct Reminder: Identifiable, Codable, Equatable {
     var kind: Kind?
     enum Kind: String, Codable { case task, notification }
     var isNotification: Bool { kind == .notification }
+    var shortcutName: String?
+    var shortcutURL: URL? {
+        guard isNotification, let name = shortcutName?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty else { return nil }
+        var components = URLComponents()
+        components.scheme = "shortcuts"
+        components.host = "run-shortcut"
+        components.queryItems = [URLQueryItem(name: "name", value: name)]
+        return components.url
+    }
     var shouldNotify: Bool { isNotification && enabled && !completed && frequency != .anytime && hasDueDate != false }
     var owner: Owner = .shared
     // Retain original imported text for recovery; taskNote is the editable task content.
@@ -277,8 +286,35 @@ enum MealWeek {
     }
 }
 
-final class NotificationDelegate: NSObject, UNUserNotificationCenterDelegate {
+final class NotificationDelegate: NSObject, UNUserNotificationCenterDelegate, ObservableObject {
     static let shared = NotificationDelegate()
+    @MainActor private var pendingShortcutURL: URL?
+    @MainActor func openPendingShortcut() {
+        #if os(iOS)
+        guard UIApplication.shared.applicationState == .active, let url = pendingShortcutURL else { return }
+        pendingShortcutURL = nil
+        UIApplication.shared.open(url, options: [:]) { opened in
+            if !opened {
+                Task { @MainActor in
+                    self.openError = "Could not open Shortcuts. Install Apple's Shortcuts app and try again."
+                }
+            }
+        }
+        #endif
+    }
+    @MainActor @Published var openError: String?
+    func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse) async {
+        guard response.actionIdentifier == UNNotificationDefaultActionIdentifier,
+              let name = response.notification.request.content.userInfo["shortcutName"] as? String else { return }
+        var reminder = Reminder(title: "", message: "", date: Date(), frequency: .once)
+        reminder.kind = .notification
+        reminder.shortcutName = name
+        guard let url = reminder.shortcutURL else { return }
+        await MainActor.run {
+            pendingShortcutURL = url
+            openPendingShortcut()
+        }
+    }
     func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification) async -> UNNotificationPresentationOptions {
         #if os(iOS)
         [.banner, .list, .sound]
@@ -508,6 +544,9 @@ final class NotificationDelegate: NSObject, UNUserNotificationCenterDelegate {
                 content.title = reminder.title
                 content.body = reminder.message
                 content.sound = .default
+                if reminder.shortcutURL != nil {
+                    content.userInfo["shortcutName"] = reminder.shortcutName?.trimmingCharacters(in: .whitespacesAndNewlines)
+                }
                 if reminder.usesRollingNotifications {
                     let dates: [Date]
                     if reminder.frequency == .flexible {
@@ -567,14 +606,15 @@ final class NotificationDelegate: NSObject, UNUserNotificationCenterDelegate {
     var body: some Scene {
         WindowGroup {
             HouseHippoHome().environmentObject(store)
-                .task { AppleSyncService.shared.start(); await store.refresh() }
-                .onChange(of: phase) { _, value in if value == .active { AppleSyncService.shared.request(); Task { await store.refresh() } } }
+                .task { NotificationDelegate.shared.openPendingShortcut(); AppleSyncService.shared.start(); await store.refresh() }
+                .onChange(of: phase) { _, value in if value == .active { NotificationDelegate.shared.openPendingShortcut(); AppleSyncService.shared.request(); Task { await store.refresh() } } }
                 .frame(minWidth: 340, minHeight: 500)
         }
     }
 }
 
 struct HouseHippoHome: View {
+    @ObservedObject private var notificationDelegate = NotificationDelegate.shared
     @EnvironmentObject private var store: ReminderStore
     @AppStorage("househippo.person") private var person = Reminder.Owner.me.rawValue
     @State private var selectedTab = 2
@@ -612,9 +652,9 @@ struct HouseHippoHome: View {
             #endif
         }
         .tint(.teal)
-        .alert("HouseHippo", isPresented: Binding(get: { store.error != nil || store.transferStatus != nil }, set: { if !$0 { store.error = nil; store.transferStatus = nil } })) {
-            Button("OK") { store.error = nil; store.transferStatus = nil }
-        } message: { Text(store.error ?? store.transferStatus ?? "") }
+        .alert("HouseHippo", isPresented: Binding(get: { store.error != nil || store.transferStatus != nil || notificationDelegate.openError != nil }, set: { if !$0 { store.error = nil; store.transferStatus = nil; notificationDelegate.openError = nil } })) {
+            Button("OK") { store.error = nil; store.transferStatus = nil; notificationDelegate.openError = nil }
+        } message: { Text(store.error ?? store.transferStatus ?? notificationDelegate.openError ?? "") }
     }
     private func showCompletedTasks() {
         taskScope = "Completed"
@@ -797,6 +837,33 @@ struct ReminderEditor: View {
     @Environment(\.dismiss) private var dismiss
     @State var reminder: Reminder
     @State private var saving = false
+    @State private var lists: [EKCalendar] = []
+    @State private var selectedListID = ""
+    @State private var loadingLists = true
+    @State private var listError: String?
+
+    private func canSelect(_ list: EKCalendar) -> Bool {
+        let config = AppleSyncService.shared.settings()
+        return !reminder.syncsWithAppleReminders || !config.enabled || config.calendarIDs.contains(list.calendarIdentifier)
+    }
+    private var validList: Bool {
+        reminder.isNotification || lists.contains { $0.calendarIdentifier == selectedListID && canSelect($0) }
+    }
+    private func loadLists() async {
+        loadingLists = true
+        listError = nil
+        do {
+            lists = try await store.reminderLists().filter(\.allowsContentModifications)
+            if let linked = reminder.appleReminderCalendarID,
+               lists.contains(where: { $0.calendarIdentifier == linked && AppleRemindersAdapter.listName($0.title) == reminder.list }) {
+                selectedListID = linked
+            } else {
+                let matches = lists.filter { AppleRemindersAdapter.listName($0.title) == reminder.list && canSelect($0) }
+                selectedListID = matches.count == 1 ? matches[0].calendarIdentifier : ""
+            }
+        } catch { listError = error.localizedDescription }
+        loadingLists = false
+    }
     var body: some View {
         NavigationStack {
             Form {
@@ -805,8 +872,50 @@ struct ReminderEditor: View {
                     if reminder.isNotification {
                         TextField("Notification message", text: $reminder.message, axis: .vertical)
                     } else {
-                        TextField("List", text: $reminder.list)
+                        Picker("List", selection: $selectedListID) {
+                            Text("Choose a list…").tag("")
+                            ForEach(lists, id: \.calendarIdentifier) { list in
+                                Text(list.title + " · " + list.source.title + (canSelect(list) ? "" : " (sync off)"))
+                                    .tag(list.calendarIdentifier)
+                                    .disabled(!canSelect(list))
+                            }
+                        }
+                        .disabled(loadingLists)
+                        .onChange(of: selectedListID) { _, id in
+                            guard let list = lists.first(where: { $0.calendarIdentifier == id }) else { return }
+                            reminder.list = AppleRemindersAdapter.listName(list.title)
+                            reminder.appleReminderCalendarID = id
+                        }
+                        if loadingLists { ProgressView("Loading Reminders lists…") }
+                        if let listError {
+                            Text(listError).foregroundStyle(.red)
+                            Button("Retry loading lists") { Task { await loadLists() } }
+                        } else if !loadingLists && lists.isEmpty {
+                            Text("Create a writable list in Apple Reminders, then reload it here.")
+                            Button("Reload lists") { Task { await loadLists() } }
+                        } else if !loadingLists && !validList {
+                            Text("Choose an available list. Enable it in Apple Sync settings if needed.").font(.caption)
+                        }
                         Picker("For", selection: $reminder.owner) { ForEach(Reminder.Owner.allCases, id: \.self) { Text($0.displayName).tag($0) } }
+                    }
+                }
+                if reminder.isNotification {
+                    Section {
+                        TextField("Shortcut name (optional)", text: Binding(get: { reminder.shortcutName ?? "" }, set: { reminder.shortcutName = $0 }))
+                            .autocorrectionDisabled()
+                        #if os(iOS)
+                        if let url = reminder.shortcutURL {
+                            Link("Test shortcut", destination: url)
+                        }
+                        #endif
+                        DisclosureGroup("Set up an app shortcut") {
+                            Text("1. Open Apple's Shortcuts app and create a shortcut.\n2. Add the Open App action and choose Fertility Friend (or another app).\n3. Name it, for example, Open Fertility Friend.\n4. Enter that exact shortcut name above and test it.")
+                            Text("Create the shortcut on each iPhone that receives this notification. If you rename it, update the name here too.")
+                        }
+                    } header: {
+                        Text("When tapped")
+                    } footer: {
+                        Text("Leave blank to open HouseHippo. Otherwise, tapping the notification runs your shortcut through Shortcuts. You may need to unlock your iPhone. A missing shortcut is reported by Shortcuts.")
                     }
                 }
                 Section("Schedule") {
@@ -874,12 +983,15 @@ struct ReminderEditor: View {
             }.formStyle(.grouped)
             .navigationTitle(reminder.isNotification ? "Notification details" : "Task details")
             .onAppear { if reminder.isUnscheduled { reminder.frequency = .anytime } }
+            .task { if !reminder.isNotification { await loadLists() } }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") {
                         saving = true
                         reminder.title = reminder.title.trimmingCharacters(in: .whitespacesAndNewlines)
+                        let shortcutName = reminder.shortcutName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                        reminder.shortcutName = shortcutName.isEmpty ? nil : shortcutName
                         reminder.recurrenceAnchor = reminder.recurrenceAnchor ?? reminder.date
                         reminder.recurrenceImportVersion = 1
                         if reminder.frequency == .weekly {
@@ -887,7 +999,7 @@ struct ReminderEditor: View {
                             let start = Calendar.current.startOfDay(for: max(Date(), reminder.date))
                             reminder.date = reminder.nextWeeklyOccurrence(after: start.addingTimeInterval(-1)) ?? reminder.date
                         }
-                        Task { await store.save(reminder); dismiss() } }.disabled(saving || reminder.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        Task { await store.save(reminder); dismiss() } }.disabled(saving || !validList || reminder.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
             }
         }

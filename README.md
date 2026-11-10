@@ -37,3 +37,9 @@ python3 Tests/check_household_repair.py
 ```
 
 Private backups, databases, build archives, and signing credentials are excluded by `.gitignore`.
+
+## Open an app from a notification
+
+On your iPhone, create a shortcut in Apple's Shortcuts app with an **Open App** action, choose the app (for example, Fertility Friend), and name the shortcut **Open Fertility Friend**. In HouseHippo's notification details, enter that exact name under **When tapped**, use **Test shortcut**, and save. Tapping the scheduled notification opens HouseHippo, then runs the shortcut. You may need to unlock your phone first.
+
+Leave the name blank for the usual HouseHippo behavior. Shortcuts must exist on each receiving iPhone; if you rename one, update the notification. Shortcuts reports missing shortcuts itself. HouseHippo cannot verify that a named shortcut exists or that its actions succeed.

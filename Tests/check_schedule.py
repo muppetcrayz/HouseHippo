@@ -336,6 +336,27 @@ do {
     print("Dashboard overdue checks passed: oldest first, today inclusion, future/completed/deleted exclusions, random eligibility and deferral.")
 }
 '''
+checks += r'''
+var notification = Reminder(title: "Temperature", message: "", date: Date(), frequency: .daily)
+notification.kind = .notification
+notification.shortcutName = "  Open Fertility Friend & log + 🌡?  "
+let shortcutURL = notification.shortcutURL!
+let components = URLComponents(url: shortcutURL, resolvingAgainstBaseURL: false)!
+precondition(components.scheme == "shortcuts" && components.host == "run-shortcut")
+precondition(components.queryItems == [URLQueryItem(name: "name", value: "Open Fertility Friend & log + 🌡?")])
+let savedNotification = try JSONDecoder().decode(Reminder.self, from: JSONEncoder().encode(notification))
+precondition(savedNotification.shortcutName == notification.shortcutName)
+var legacyObject = try JSONSerialization.jsonObject(with: JSONEncoder().encode(notification)) as! [String: Any]
+legacyObject.removeValue(forKey: "shortcutName")
+let legacyNotification = try JSONDecoder().decode(Reminder.self, from: JSONSerialization.data(withJSONObject: legacyObject))
+precondition(legacyNotification.shortcutURL == nil)
+notification.shortcutName = "  \n "
+precondition(notification.shortcutURL == nil)
+notification.shortcutName = "Open Fertility Friend"
+notification.kind = .task
+precondition(notification.shortcutURL == nil)
+print("Shortcut checks passed: encoded names, persistence, older data, blank names and silent tasks.")
+'''
 with tempfile.TemporaryDirectory(prefix="NotifyMe-checks-") as directory:
     script = Path(directory) / "Checks.swift"
     script.write_text("import Foundation\n" + model + method + "\n" + checks)

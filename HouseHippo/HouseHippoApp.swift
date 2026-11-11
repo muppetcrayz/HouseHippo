@@ -383,6 +383,11 @@ final class NotificationDelegate: NSObject, UNUserNotificationCenterDelegate, Ob
         current.moveToTomorrow()
         await save(current)
     }
+    func moveBackToToday(_ reminder: Reminder) async {
+        guard var current = reminders.first(where: { $0.id == reminder.id }) else { return }
+        current.moveBackToToday()
+        await save(current)
+    }
     func undoCompletion(_ reminder: Reminder) async {
         guard var current = reminders.first(where: { $0.id == reminder.id }), current.wasCompletedToday() else { return }
         current.undoTodayCompletion()
@@ -682,7 +687,7 @@ struct TaskList: View {
             let visible = mode != .dashboard || task.owner == .shared || task.owner.rawValue == person
             let relevant = mode == .notifications ? task.isNotification : !task.isNotification
             let matches = search.isEmpty || (task.title + " " + task.list).localizedCaseInsensitiveContains(search)
-            return visible && relevant && matches && (mode != .dashboard || task.isDueToday(at: dashboardNow) || task.isAvailableFlexible(at: dashboardNow)) && (scope == "Completed" ? task.wasCompletedToday(at: dashboardNow) : !task.completed)
+            return visible && relevant && matches && (mode != .dashboard || task.isDueToday(at: dashboardNow) || task.isAvailableFlexible(at: dashboardNow)) && (scope == "Completed" ? (task.wasCompletedToday(at: dashboardNow) || task.isDelayed(at: dashboardNow)) : !task.completed)
         }
     }
     var body: some View {
@@ -720,12 +725,12 @@ struct TaskList: View {
                 }
                 if mode == .tasks {
                     Section {
-                        Picker("Show", selection: $scope) { Text("Active").tag("Active"); Text("Completed today").tag("Completed") }.pickerStyle(.segmented)
+                        Picker("Show", selection: $scope) { Text("Active").tag("Active"); Text("Completed / delayed").tag("Completed") }.pickerStyle(.segmented)
                     }
                 }
                 if filtered.isEmpty {
                     Section {
-                        ContentUnavailableView(mode == .notifications ? "No notifications yet" : mode == .dashboard ? "Nothing due today" : scope == "Completed" ? "Nothing completed today" : "All clear", systemImage: mode == .notifications ? "bell" : "checkmark.circle", description: Text(mode == .notifications ? "Add a notification to schedule an alert. Tasks and reminders stay silent." : mode == .dashboard ? "Your other reminders are in Tasks." : scope == "Completed" ? "Tasks completed today appear here so you can undo them." : "Add a task or import your Apple Reminders."))
+                        ContentUnavailableView(mode == .notifications ? "No notifications yet" : mode == .dashboard ? "Nothing due today" : scope == "Completed" ? "Nothing completed or delayed" : "All clear", systemImage: mode == .notifications ? "bell" : "checkmark.circle", description: Text(mode == .notifications ? "Add a notification to schedule an alert. Tasks and reminders stay silent." : mode == .dashboard ? "Your other reminders are in Tasks." : scope == "Completed" ? "Tasks completed today and delayed tasks appear here so you can bring them back." : "Add a task or import your Apple Reminders."))
                         if mode != .notifications && (mode != .dashboard || !store.reminders.contains(where: { !$0.isNotification })) {
                             Button("Import Apple Reminders…", systemImage: "square.and.arrow.down") { importing = true }
                         }
@@ -735,8 +740,13 @@ struct TaskList: View {
                     taskSection("Today's Tasks", tasks: filtered.filter { !$0.isFlexibleTask || $0.deferredUntil != nil }, random: true, todayRandom: true)
                     taskSection("Flexible Tasks", tasks: filtered.filter { $0.isFlexibleTask && $0.deferredUntil == nil }, random: true)
                 } else if mode == .tasks {
-                    taskSection("Scheduled tasks", tasks: filtered.filter { !$0.isFlexibleTask })
-                    taskSection("Flexible tasks", tasks: filtered.filter { $0.isFlexibleTask })
+                    if scope == "Completed" {
+                        taskSection("Completed today", tasks: filtered.filter { $0.wasCompletedToday(at: dashboardNow) && !$0.isDelayed(at: dashboardNow) })
+                        taskSection("Delayed tasks", tasks: filtered.filter { $0.isDelayed(at: dashboardNow) })
+                    } else {
+                        taskSection("Scheduled tasks", tasks: filtered.filter { !$0.isFlexibleTask })
+                        taskSection("Flexible tasks", tasks: filtered.filter { $0.isFlexibleTask })
+                    }
                 } else {
                     taskSection("Your notifications", tasks: filtered)
                 }
@@ -793,11 +803,12 @@ struct TaskList: View {
                                 .accessibilityLabel(task.enabled ? "Pause notification" : "Resume notification")
                         } else {
                             Button { Task {
-                                if scope == "Completed" { await store.undoCompletion(task) }
+                                if scope == "Completed" && task.isDelayed(at: dashboardNow) { await store.moveBackToToday(task) }
+                                else if scope == "Completed" { await store.undoCompletion(task) }
                                 else { await store.complete(task) }
-                            } } label: { Image(systemName: scope == "Completed" ? "checkmark.circle.fill" : "circle").font(.title2).frame(width: 44).frame(maxHeight: .infinity).contentShape(Rectangle()) }
+                            } } label: { Image(systemName: scope == "Completed" ? (task.isDelayed(at: dashboardNow) ? "arrow.uturn.backward.circle" : "checkmark.circle.fill") : "circle").font(.title2).frame(width: 44).frame(maxHeight: .infinity).contentShape(Rectangle()) }
                                 .buttonStyle(.borderless)
-                                .accessibilityLabel(scope == "Completed" ? "Undo completion" : "Mark done")
+                                .accessibilityLabel(scope == "Completed" ? (task.isDelayed(at: dashboardNow) ? "Move back to today" : "Undo completion") : "Mark done")
                         }
                         Button { editing = task } label: {
                             VStack(alignment: .leading, spacing: 5) {
@@ -819,6 +830,9 @@ struct TaskList: View {
                     .contextMenu {
                         if task.isNotification {
                             Button(task.enabled ? "Pause notification" : "Resume notification") { Task { await store.toggle(task) } }
+                        }
+                        if task.isDelayed(at: dashboardNow) {
+                            Button("Move back to today", systemImage: "arrow.uturn.backward") { Task { await store.moveBackToToday(task) } }
                         }
                         if task.canMoveToTomorrow && scope != "Completed" {
                             Button("Move to tomorrow", systemImage: "calendar.badge.clock") { Task { await store.moveToTomorrow(task) } }

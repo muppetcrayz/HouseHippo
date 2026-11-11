@@ -9,6 +9,17 @@ extension Reminder {
         deferredUntil = isAllDay || isFlexibleTask ? tomorrow : calendar.date(bySettingHour: time.hour ?? 0, minute: time.minute ?? 0, second: time.second ?? 0, of: tomorrow)
     }
 
+    func isDelayed(at now: Date = Date(), calendar: Calendar = .current) -> Bool {
+        guard canMoveToTomorrow, let deferredUntil else { return false }
+        return calendar.startOfDay(for: deferredUntil) > calendar.startOfDay(for: now)
+    }
+    mutating func moveBackToToday(at now: Date = Date(), calendar: Calendar = .current) {
+        guard isDelayed(at: now, calendar: calendar) else { return }
+        let time = calendar.dateComponents([.hour, .minute, .second], from: date)
+        let today = calendar.startOfDay(for: now)
+        deferredUntil = isAllDay || isFlexibleTask ? today : calendar.date(bySettingHour: time.hour ?? 0, minute: time.minute ?? 0, second: time.second ?? 0, of: today)
+    }
+
     func wasCompletedToday(at now: Date = Date(), calendar: Calendar = .current) -> Bool {
         guard deletedAt == nil, let lastCompleted else { return false }
         return calendar.isDate(lastCompleted, inSameDayAs: now)

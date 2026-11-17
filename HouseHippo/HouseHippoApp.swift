@@ -188,6 +188,8 @@ struct Reminder: Identifiable, Codable, Equatable {
     }
     func isOverdue(at now: Date = Date()) -> Bool {
         guard !completed, deletedAt == nil else { return false }
+        // Daily notifications schedule another alert; they do not become overdue tasks.
+        if isNotification && frequency == .daily { return false }
         if let deferredUntil {
             return isAllDay || isFlexibleTask ? deferredUntil < Calendar.current.startOfDay(for: now) : deferredUntil < now
         }
@@ -303,24 +305,31 @@ final class NotificationDelegate: NSObject, UNUserNotificationCenterDelegate, Ob
         #endif
     }
     @MainActor @Published var openError: String?
-    func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse) async {
-        guard response.actionIdentifier == UNNotificationDefaultActionIdentifier,
-              let name = response.notification.request.content.userInfo["shortcutName"] as? String else { return }
-        var reminder = Reminder(title: "", message: "", date: Date(), frequency: .once)
-        reminder.kind = .notification
-        reminder.shortcutName = name
-        guard let url = reminder.shortcutURL else { return }
-        await MainActor.run {
-            pendingShortcutURL = url
-            openPendingShortcut()
+    // Use explicit callbacks so the system's completion always runs on the main
+    // queue. The async bridge can resume on a background executor after a tap.
+    func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse, withCompletionHandler completionHandler: @escaping () -> Void) {
+        let name = response.actionIdentifier == UNNotificationDefaultActionIdentifier
+            ? response.notification.request.content.userInfo["shortcutName"] as? String : nil
+        DispatchQueue.main.async {
+            if let name {
+                var reminder = Reminder(title: "", message: "", date: Date(), frequency: .once)
+                reminder.kind = .notification
+                reminder.shortcutName = name
+                self.pendingShortcutURL = reminder.shortcutURL
+            }
+            completionHandler()
+            // Let iOS finish processing the response before leaving HouseHippo.
+            DispatchQueue.main.async { self.openPendingShortcut() }
         }
     }
-    func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification) async -> UNNotificationPresentationOptions {
-        #if os(iOS)
-        [.banner, .list, .sound]
-        #else
-        []
-        #endif
+    func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification, withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
+        DispatchQueue.main.async {
+            #if os(iOS)
+            completionHandler([.banner, .list, .sound])
+            #else
+            completionHandler([])
+            #endif
+        }
     }
 }
 
@@ -1049,21 +1058,32 @@ struct MealsView: View {
             Form {
                 Section {
                     HStack {
-                        Button("Previous week", systemImage: "chevron.left") { moveWeek(-1) }
+                        Button { moveWeek(-1) } label: {
+                            Label("Previous week", systemImage: "chevron.left")
+                                .frame(minWidth: 44, minHeight: 44)
+                        }
                         Spacer()
                         Text("Week of \(week.formatted(date: .abbreviated, time: .omitted))")
                         Spacer()
-                        Button("Next week", systemImage: "chevron.right") { moveWeek(1) }
+                        Button { moveWeek(1) } label: {
+                            Label("Next week", systemImage: "chevron.right")
+                                .frame(minWidth: 44, minHeight: 44)
+                        }
                     }
+                    // Automatic Form buttons can both fire for a single row tap on iOS.
+                    .buttonStyle(.borderless)
+                    #if os(iOS)
+                    .labelStyle(.iconOnly)
+                    #endif
                 }
                 Section("Dinner · drag a day onto another to swap") {
                     ForEach(0..<7, id: \.self) { day in
                         HStack {
-                            #if os(macOS)
                             Image(systemName: "line.3.horizontal")
                                 .foregroundStyle(.secondary)
-                                .frame(width: 24, height: 24)
+                                .frame(width: 44, height: 44)
                                 .contentShape(Rectangle())
+                                .accessibilityLabel("Drag to swap dinner")
                                 .help("Drag to another day to swap dinners")
                                 .onDrag {
                                     let provider = NSItemProvider()
@@ -1075,12 +1095,10 @@ struct MealsView: View {
                                     }
                                     return provider
                                 }
-                            #endif
                             Text(Calendar.current.date(byAdding: .day, value: day, to: week)!.formatted(.dateTime.weekday(.abbreviated))).frame(width: 45)
                             TextField("What's for dinner?", text: $dinners[day])
                         }
                         .contentShape(Rectangle())
-                        #if os(macOS)
                         .onDrop(of: [UTType.houseHippoMealDay], isTargeted: nil) { providers in
                             guard let provider = providers.first else { return false }
                             let destinationWeek = week
@@ -1093,13 +1111,6 @@ struct MealsView: View {
                             }
                             return true
                         }
-                        #else
-                        .draggable(MealDayDrag(day: day, week: week))
-                        .dropDestination(for: MealDayDrag.self) { values, _ in
-                            guard let value = values.first else { return false }
-                            return swapDinner(value, onto: day)
-                        }
-                        #endif
                     }
                 }
                 Section("Grocery list") { GroceryView() }

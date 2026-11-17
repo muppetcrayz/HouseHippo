@@ -385,6 +385,39 @@ notification.kind = .task
 precondition(notification.shortcutURL == nil)
 print("Shortcut checks passed: encoded names, persistence, older data, blank names and silent tasks.")
 '''
+checks += r'''
+do {
+    func task(_ title: String, _ list: String, _ hour: Int, allDay: Bool = false, day: Int = 8) -> Reminder {
+        var item = Reminder(title: title, message: "", date: calendar.date(from: DateComponents(year: 2030, month: 11, day: day, hour: hour))!, frequency: .once)
+        item.list = list
+        item.allDay = allDay
+        return item
+    }
+    let allZ = task("Zebra", "Home", 14, allDay: true)
+    let allA = task("Apple", "Home", 16, allDay: true, day: 7)
+    let allOther = task("Aardvark", "Work", 8, allDay: true)
+    let early = task("Zebra", "Work", 8)
+    let lateZ = task("Zebra", "Home", 9)
+    let lateA = task("Apple", "Home", 9)
+    let lateOther = task("Aardvark", "Work", 9, day: 6)
+    let input = [lateOther, allOther, lateZ, allZ, early, allA, lateA]
+    let expected = [allA, allZ, allOther, early, lateA, lateZ, lateOther].map(\.id)
+    precondition(input.sorted(by: Reminder.dashboardOrderedBefore).map(\.id) == expected)
+    precondition(input.reversed().sorted(by: Reminder.dashboardOrderedBefore).map(\.id) == expected)
+    var deferred = lateZ
+    deferred.deferredUntil = calendar.date(byAdding: .hour, value: -2, to: lateZ.date)
+    precondition(Reminder.dashboardOrderedBefore(deferred, early))
+    var flexibleA = task("Apple", "Home", 17)
+    flexibleA.frequency = .anytime
+    var flexibleZ = task("Zebra", "Home", 6)
+    flexibleZ.frequency = .anytime
+    precondition(Reminder.dashboardOrderedBefore(flexibleA, flexibleZ))
+    var duplicate = allA
+    duplicate.id = UUID()
+    precondition(Reminder.dashboardOrderedBefore(allA, duplicate) != Reminder.dashboardOrderedBefore(duplicate, allA))
+    print("Dashboard ordering checks passed: all-day first, clock time, list, title, overdue dates, deferrals, flexible tasks and stable ties.")
+}
+'''
 with tempfile.TemporaryDirectory(prefix="NotifyMe-checks-") as directory:
     script = Path(directory) / "Checks.swift"
     script.write_text("import Foundation\n" + model + method + "\n" + checks)

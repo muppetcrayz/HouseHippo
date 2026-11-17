@@ -181,6 +181,22 @@ struct Reminder: Identifiable, Codable, Equatable {
         return lastCompleted == nil ? month : calendar.date(byAdding: .month, value: max(1, interval), to: month)!
     }
     var effectiveDate: Date { deferredUntil ?? (frequency == .flexible ? dueMonth : date) }
+    static func dashboardOrderedBefore(_ lhs: Reminder, _ rhs: Reminder) -> Bool {
+        let lhsAllDay = lhs.isAllDay || lhs.isFlexibleTask
+        let rhsAllDay = rhs.isAllDay || rhs.isFlexibleTask
+        if lhsAllDay != rhsAllDay { return lhsAllDay }
+        if !lhsAllDay {
+            let calendar = Calendar.current
+            let lhsTime = calendar.component(.hour, from: lhs.effectiveDate) * 60 + calendar.component(.minute, from: lhs.effectiveDate)
+            let rhsTime = calendar.component(.hour, from: rhs.effectiveDate) * 60 + calendar.component(.minute, from: rhs.effectiveDate)
+            if lhsTime != rhsTime { return lhsTime < rhsTime }
+        }
+        let listOrder = lhs.list.localizedStandardCompare(rhs.list)
+        if listOrder != .orderedSame { return listOrder == .orderedAscending }
+        let titleOrder = lhs.title.localizedStandardCompare(rhs.title)
+        if titleOrder != .orderedSame { return titleOrder == .orderedAscending }
+        return lhs.id.uuidString < rhs.id.uuidString
+    }
     static func orderedBefore(_ lhs: Reminder, _ rhs: Reminder) -> Bool {
         if lhs.effectiveDate != rhs.effectiveDate { return lhs.effectiveDate < rhs.effectiveDate }
         let titleOrder = lhs.title.localizedStandardCompare(rhs.title)
@@ -738,7 +754,7 @@ struct TaskList: View {
         }
     }
     var body: some View {
-        let filtered = self.filtered
+        let filtered = mode == .dashboard ? self.filtered.sorted(by: Reminder.dashboardOrderedBefore) : self.filtered
         return NavigationStack {
             List {
                 if mode == .dashboard {

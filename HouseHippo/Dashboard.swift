@@ -28,11 +28,11 @@ struct HomeDashboard: View {
         return hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening"
     }
     var body: some View {
-        // ReminderStore already publishes tasks in display order. Compute each pool once per render.
+        // Sort the combined pool so overdue tasks follow the same dashboard ordering.
         let tasks = visible
         let overdue = tasks.filter { $0.isOverdue(at: now) }
-        let today = overdue + tasks.filter { $0.isDueToday(at: now) && !$0.isOverdue(at: now) }
-        let flexible = tasks.filter { $0.isAvailableFlexible(at: now) && !$0.isOverdue(at: now) }
+        let today = (overdue + tasks.filter { $0.isDueToday(at: now) && !$0.isOverdue(at: now) }).sorted(by: Reminder.dashboardOrderedBefore)
+        let flexible = tasks.filter { $0.isAvailableFlexible(at: now) && !$0.isOverdue(at: now) }.sorted(by: Reminder.dashboardOrderedBefore)
         return NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 22) {

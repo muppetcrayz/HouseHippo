@@ -20,6 +20,7 @@ import CryptoKit
     private var migrationHome: NSManagedObject?
     private var activeEvents: Set<UUID> = []
     private var activeImports: Set<UUID> = []
+    private var completedImports = 0
     private var remoteRefresh: Task<Void, Never>?
     private var hasPendingRemoteChanges = false
     private var syncErrors: [String: String] = [:]
@@ -79,6 +80,7 @@ import CryptoKit
                     self.activeEvents.remove(event.identifier)
                     if event.type == .import {
                         self.activeImports.remove(event.identifier)
+                        self.completedImports += 1
                         self.queueRemoteRefresh()
                     }
                     if let error = event.error {
@@ -101,6 +103,21 @@ import CryptoKit
                 else { self.status = self.lastSync == nil ? "iCloud connected · waiting for first sync" : "Up to date with iCloud" }
             }
         })
+    }
+
+    /// Waits while CloudKit downloads changes, such as during a background refresh.
+    /// Returns once an import finishes, or after `grace` if no sync activity starts.
+    func waitForImport(grace: Duration = .seconds(3), timeout: Duration = .seconds(25)) async {
+        guard cloudEnabled, loadError == nil else { return }
+        let startingImports = completedImports
+        let clock = ContinuousClock()
+        let graceEnd = clock.now + grace, deadline = clock.now + timeout
+        while clock.now < deadline, !Task.isCancelled {
+            let imported = completedImports > startingImports
+            if imported && activeImports.isEmpty { return }
+            if !imported && activeEvents.isEmpty && clock.now >= graceEnd { return }
+            try? await Task.sleep(for: .milliseconds(250))
+        }
     }
 
     private func queueRemoteRefresh() {

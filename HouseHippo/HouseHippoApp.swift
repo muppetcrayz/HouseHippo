@@ -7,6 +7,7 @@ import Combine
 import AppKit
 #else
 import UIKit
+import BackgroundTasks
 #endif
 
 struct Reminder: Identifiable, Codable, Equatable {
@@ -325,6 +326,7 @@ final class NotificationDelegate: NSObject, UNUserNotificationCenterDelegate, Ob
 }
 
 @MainActor final class ReminderStore: ObservableObject {
+    static let shared = ReminderStore()
     @Published var reminders: [Reminder] = []
     @Published var status: UNAuthorizationStatus = .notDetermined
     @Published var error: String?
@@ -606,17 +608,53 @@ final class NotificationDelegate: NSObject, UNUserNotificationCenterDelegate, Ob
     #else
     @UIApplicationDelegateAdaptor(HouseHippoDelegate.self) private var delegate
     #endif
-    @StateObject private var store = ReminderStore()
+    @StateObject private var store = ReminderStore.shared
     @Environment(\.scenePhase) private var phase
     var body: some Scene {
         WindowGroup {
             HouseHippoHome().environmentObject(store)
                 .task { NotificationDelegate.shared.openPendingShortcut(); AppleSyncService.shared.start(); await store.refresh() }
-                .onChange(of: phase) { _, value in if value == .active { NotificationDelegate.shared.openPendingShortcut(); AppleSyncService.shared.request(); Task { await store.refresh() } } }
+                .onChange(of: phase) { _, value in
+                    switch value {
+                    case .active: NotificationDelegate.shared.openPendingShortcut(); AppleSyncService.shared.request(); Task { await store.refresh() }
+                    #if os(iOS)
+                    case .background: BackgroundRefresh.schedule()
+                    #endif
+                    default: break
+                    }
+                }
                 .frame(minWidth: 340, minHeight: 500)
         }
+        #if os(iOS)
+        .backgroundTask(.appRefresh(BackgroundRefresh.identifier)) {
+            BackgroundRefresh.schedule()
+            await BackgroundRefresh.run()
+        }
+        #endif
     }
 }
+
+#if os(iOS)
+/// Wakes the app periodically so iCloud changes are downloaded before it is opened.
+/// iOS decides when this runs, based on how often the app is used.
+enum BackgroundRefresh {
+    static let identifier = "com.danturner.HouseHippo.refresh"
+    static func schedule() {
+        let request = BGAppRefreshTaskRequest(identifier: identifier)
+        request.earliestBeginDate = Date(timeIntervalSinceNow: 15 * 60)
+        // Fails in the simulator and when Background App Refresh is off; foreground sync still works.
+        try? BGTaskScheduler.shared.submit(request)
+    }
+    @MainActor static func run() async {
+        await CloudStore.shared.waitForImport()
+        // Give Core Data a moment to merge the import into the view context before reading.
+        try? await Task.sleep(for: .seconds(1))
+        guard !Task.isCancelled else { return }
+        // Reload tasks and extend rolling notification coverage.
+        await ReminderStore.shared.refresh()
+    }
+}
+#endif
 
 struct HouseHippoHome: View {
     @ObservedObject private var notificationDelegate = NotificationDelegate.shared

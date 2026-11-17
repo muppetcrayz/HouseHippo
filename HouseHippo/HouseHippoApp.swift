@@ -1084,6 +1084,7 @@ private extension UTType {
 struct MealsView: View {
     @ObservedObject private var cloud = CloudStore.shared
     @State private var dinners = Array(repeating: "", count: 7)
+    @State private var targetedDay: Int?
     @State private var week = MealWeek.start(containing: Date())
     private var currentDinners: [String] {
         (0..<7).map { day in
@@ -1093,66 +1094,80 @@ struct MealsView: View {
     }
     var body: some View {
         NavigationStack {
-            Form {
-                Section {
-                    HStack {
-                        Button { moveWeek(-1) } label: {
-                            Label("Previous week", systemImage: "chevron.left")
-                                .frame(minWidth: 44, minHeight: 44)
-                        }
-                        Spacer()
-                        Text("Week of \(week.formatted(date: .abbreviated, time: .omitted))")
-                        Spacer()
-                        Button { moveWeek(1) } label: {
-                            Label("Next week", systemImage: "chevron.right")
-                                .frame(minWidth: 44, minHeight: 44)
-                        }
-                    }
-                    // Automatic Form buttons can both fire for a single row tap on iOS.
-                    .buttonStyle(.borderless)
-                    #if os(iOS)
-                    .labelStyle(.iconOnly)
-                    #endif
-                }
-                Section("Dinner · drag a day onto another to swap") {
-                    ForEach(0..<7, id: \.self) { day in
+            ScrollView {
+                VStack(spacing: 20) {
+                    GroupBox {
                         HStack {
-                            Image(systemName: "line.3.horizontal")
-                                .foregroundStyle(.secondary)
-                                .frame(width: 44, height: 44)
-                                .contentShape(Rectangle())
-                                .accessibilityLabel("Drag to swap dinner")
-                                .help("Drag to another day to swap dinners")
-                                .onDrag {
-                                    let provider = NSItemProvider()
-                                    let payload = MealDayDrag(day: day, week: week)
-                                    provider.registerDataRepresentation(forTypeIdentifier: UTType.houseHippoMealDay.identifier, visibility: .ownProcess) { completion in
-                                        do { completion(try JSONEncoder().encode(payload), nil) }
-                                        catch { completion(nil, error) }
-                                        return nil
-                                    }
-                                    return provider
-                                }
-                            Text(Calendar.current.date(byAdding: .day, value: day, to: week)!.formatted(.dateTime.weekday(.abbreviated))).frame(width: 45)
-                            TextField("What's for dinner?", text: $dinners[day])
+                            Button { moveWeek(-1) } label: {
+                                Label("Previous week", systemImage: "chevron.left")
+                                    .frame(minWidth: 44, minHeight: 44)
+                            }
+                            Spacer()
+                            Text("Week of \(week.formatted(date: .abbreviated, time: .omitted))")
+                            Spacer()
+                            Button { moveWeek(1) } label: {
+                                Label("Next week", systemImage: "chevron.right")
+                                    .frame(minWidth: 44, minHeight: 44)
+                            }
                         }
-                        .contentShape(Rectangle())
-                        .onDrop(of: [UTType.houseHippoMealDay], isTargeted: nil) { providers in
-                            guard let provider = providers.first else { return false }
-                            let destinationWeek = week
-                            provider.loadDataRepresentation(forTypeIdentifier: UTType.houseHippoMealDay.identifier) { data, _ in
-                                guard let data, let value = try? JSONDecoder().decode(MealDayDrag.self, from: data) else { return }
-                                DispatchQueue.main.async {
-                                    guard week == destinationWeek else { return }
-                                    _ = swapDinner(value, onto: day)
+                        .buttonStyle(.borderless)
+                        #if os(iOS)
+                        .labelStyle(.iconOnly)
+                        #endif
+                    }
+                    GroupBox("Dinner · drag a day onto another to swap") {
+                        VStack(spacing: 0) {
+                            ForEach(0..<7, id: \.self) { day in
+                                HStack {
+                                    Image(systemName: "line.3.horizontal")
+                                        .foregroundStyle(.secondary)
+                                        .frame(width: 44, height: 44)
+                                        .contentShape(Rectangle())
+                                        .accessibilityLabel("Drag to swap dinner")
+                                        .help("Drag to another day to swap dinners")
+                                        .onDrag {
+                                            let provider = NSItemProvider()
+                                            let payload = MealDayDrag(day: day, week: week)
+                                            provider.registerDataRepresentation(forTypeIdentifier: UTType.houseHippoMealDay.identifier, visibility: .all) { completion in
+                                                do { completion(try JSONEncoder().encode(payload), nil) }
+                                                catch { completion(nil, error) }
+                                                return nil
+                                            }
+                                            return provider
+                                        }
+                                    Text(Calendar.current.date(byAdding: .day, value: day, to: week)!.formatted(.dateTime.weekday(.abbreviated))).frame(width: 45)
+                                    TextField("What's for dinner?", text: $dinners[day])
+                                }
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 4)
+                                .background(targetedDay == day ? Color.accentColor.opacity(0.15) : Color.clear)
+                                .clipShape(RoundedRectangle(cornerRadius: 8))
+                                .contentShape(Rectangle())
+                                .onDrop(of: [UTType.houseHippoMealDay], isTargeted: Binding(
+                                    get: { targetedDay == day },
+                                    set: { targeted in
+                                        if targeted { targetedDay = day }
+                                        else if targetedDay == day { targetedDay = nil }
+                                    }
+                                )) { providers in
+                                    guard let provider = providers.first else { return false }
+                                    let destinationWeek = week
+                                    provider.loadDataRepresentation(forTypeIdentifier: UTType.houseHippoMealDay.identifier) { data, _ in
+                                        guard let data, let value = try? JSONDecoder().decode(MealDayDrag.self, from: data) else { return }
+                                        DispatchQueue.main.async {
+                                            guard week == destinationWeek else { return }
+                                            _ = swapDinner(value, onto: day)
+                                        }
+                                    }
+                                    return true
                                 }
                             }
-                            return true
                         }
                     }
+                    GroupBox("Grocery list") { GroceryView() }
                 }
-                Section("Grocery list") { GroceryView() }
-            }.formStyle(.grouped).navigationTitle("Meals")
+                .padding()
+            }.navigationTitle("Meals")
             .onAppear {
                 do { try cloud.migrateMealDates(); dinners = currentDinners }
                 catch { cloud.report(error) }

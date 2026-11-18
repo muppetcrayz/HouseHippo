@@ -6,6 +6,7 @@ app = (root / 'HouseHippo/HouseHippoApp.swift').read_text()
 model = app[app.index('struct Reminder:'):app.index('final class NotificationDelegate')]
 model += "\n" + (root / "HouseHippo/GroceryModel.swift").read_text()
 model += "\n" + (root / "HouseHippo/Recurrence.swift").read_text()
+model += "\n" + (root / "HouseHippo/InventoryModel.swift").read_text()
 store = (root / 'HouseHippo/CloudStore.swift').read_text()
 checks = r'''
 @main struct StorageChecks {
@@ -57,6 +58,153 @@ checks = r'''
         let again = CloudStore(directory: base, cloudEnabled: false, defaults: defaults, legacyDefaults: nil)
         precondition(try again.tasks().count == 1) // Migration must not resurrect deleted tasks.
         precondition(defaults.data(forKey: "reminders") != nil) // Recovery copy kept.
+        // Waiting For records persist independently of tasks; updates sort by editable dates.
+        let waiting = WaitingRecord(title: "Dr. Luke to take my organ")
+        try again.saveWaitingRecord(waiting)
+        var firstUpdate = WaitingUpdate(recordID: waiting.id, text: "Got Doug’s number", date: Date(timeIntervalSince1970: 100))
+        let secondUpdate = WaitingUpdate(recordID: waiting.id, text: "Texted Doug again", date: Date(timeIntervalSince1970: 200))
+        try again.saveWaitingUpdate(firstUpdate)
+        try again.saveWaitingUpdate(secondUpdate)
+        let actionTask = secondUpdate.flexibleTask(recordTitle: waiting.title, owner: .me)
+        precondition(actionTask.title == secondUpdate.text)
+        precondition(actionTask.isFlexibleTask && actionTask.hasDueDate == false && !actionTask.syncsWithAppleReminders)
+        precondition(actionTask.owner == .me && actionTask.list == "One-off personal tasks")
+        precondition(actionTask.taskNote?.contains(waiting.title) == true)
+        try again.save(actionTask)
+        let savedAction = try again.tasks().first { $0.id == actionTask.id }
+        precondition(savedAction?.isFlexibleTask == true && savedAction?.title == secondUpdate.text)
+        let householdAction = secondUpdate.flexibleTask(recordTitle: waiting.title, owner: .shared)
+        precondition(householdAction.list == "One-off general tasks" && householdAction.owner == .shared)
+
+        firstUpdate.date = Date(timeIntervalSince1970: 300)
+        try again.saveWaitingUpdate(firstUpdate)
+        let waitingReload = CloudStore(directory: base, cloudEnabled: false, defaults: defaults, legacyDefaults: nil)
+        let savedWaiting = try waitingReload.waitingRecords()
+        precondition(savedWaiting == [waiting])
+        let savedUpdates = try waitingReload.waitingUpdates(for: waiting.id)
+        precondition(savedUpdates == [firstUpdate, secondUpdate])
+        var deletedUpdate = firstUpdate; deletedUpdate.deletedAt = Date()
+        try waitingReload.saveWaitingUpdate(deletedUpdate)
+        do { try waitingReload.saveWaitingUpdate(firstUpdate); preconditionFailure("Resurrected update") } catch {}
+        var deletedWaiting = waiting; deletedWaiting.deletedAt = Date()
+        try waitingReload.saveWaitingRecord(deletedWaiting)
+        let remainingWaiting = try waitingReload.waitingRecords()
+        precondition(remainingWaiting.isEmpty)
+        do { try waitingReload.saveWaitingRecord(waiting); preconditionFailure("Resurrected record") } catch {}
+        do { try waitingReload.saveWaitingUpdate(secondUpdate); preconditionFailure("Updated deleted record") } catch {}
+        // Borrowing/lending retains independent items, return history, and deletion tombstones.
+        var borrowed = BorrowedItem(person: "Doug", item: "Ladder", direction: .borrowing)
+        let lent = BorrowedItem(person: "Doug", item: "Book", direction: .lending)
+        try again.saveBorrowedItem(borrowed)
+        try again.saveBorrowedItem(lent)
+        borrowed.returnedAt = Date(timeIntervalSince1970: 500)
+        try again.saveBorrowedItem(borrowed)
+        let loansReload = CloudStore(directory: base, cloudEnabled: false, defaults: defaults, legacyDefaults: nil)
+        let loans = try loansReload.borrowedItems()
+        precondition(loans.count == 2)
+        precondition(loans.first { $0.id == borrowed.id } == borrowed)
+        precondition(loans.first { $0.id == lent.id } == lent)
+        borrowed.returnedAt = nil
+        try loansReload.saveBorrowedItem(borrowed)
+        let undoneLoans = try loansReload.borrowedItems()
+        precondition(undoneLoans.allSatisfy { $0.returnedAt == nil })
+        var deletedLoan = borrowed; deletedLoan.deletedAt = Date()
+        try loansReload.saveBorrowedItem(deletedLoan)
+        do { try loansReload.saveBorrowedItem(borrowed); preconditionFailure("Resurrected loan") } catch {}
+        let loansAfterDelete = try loansReload.borrowedItems()
+        precondition(loansAfterDelete == [lent])
+        let loanBackup = try JSONDecoder().decode(CloudStore.Backup.self, from: loansReload.exportBackup())
+        precondition(loanBackup.entries.filter { $0.key.hasPrefix("borrowing.item.") }.count == 2)
+        var markerCalendar = Calendar(identifier: .gregorian)
+        markerCalendar.timeZone = TimeZone(identifier: "America/New_York")!
+        let markerDate = markerCalendar.date(from: DateComponents(year: 2026, month: 11, day: 1))!
+        var marker = LastTimeEntry(title: "Cleaned the gutters", date: markerDate, calendar: markerCalendar)
+        func markerDay(_ year: Int, _ month: Int, _ day: Int) -> Date {
+            markerCalendar.date(from: DateComponents(year: year, month: month, day: day))!
+        }
+        precondition(marker.elapsed(since: markerDate, calendar: markerCalendar) == "Today")
+        precondition(marker.elapsed(since: markerDay(2026, 11, 2), calendar: markerCalendar) == "Yesterday")
+        precondition(marker.elapsed(since: markerDay(2026, 11, 3), calendar: markerCalendar) == "2 days ago")
+        precondition(marker.elapsed(since: markerDay(2026, 11, 8), calendar: markerCalendar) == "About a week ago")
+        precondition(marker.elapsed(since: markerDay(2026, 12, 1), calendar: markerCalendar) == "About a month ago")
+        precondition(marker.elapsed(since: markerDay(2027, 11, 1), calendar: markerCalendar) == "About a year ago")
+        var travelCalendar = markerCalendar; travelCalendar.timeZone = TimeZone(identifier: "Asia/Tokyo")!
+        let travelParts = travelCalendar.dateComponents([.year, .month, .day], from: marker.date(calendar: travelCalendar))
+        precondition(travelParts.year == 2026 && travelParts.month == 11 && travelParts.day == 1)
+        try again.saveLastTimeEntry(marker)
+        marker.setDate(markerDay(2026, 11, 5), calendar: markerCalendar)
+        try again.saveLastTimeEntry(marker)
+        let markerReload = CloudStore(directory: base, cloudEnabled: false, defaults: defaults, legacyDefaults: nil)
+        let savedMarkers = try markerReload.lastTimeEntries()
+        precondition(savedMarkers == [marker] && savedMarkers[0].day == 5)
+        let markerBackup = try JSONDecoder().decode(CloudStore.Backup.self, from: markerReload.exportBackup())
+        precondition(markerBackup.entries.contains { $0.key == "lasttime.entry." + marker.id.uuidString })
+        var deletedMarker = marker; deletedMarker.deletedAt = Date()
+        try markerReload.saveLastTimeEntry(deletedMarker)
+        let markersAfterDelete = try markerReload.lastTimeEntries()
+        precondition(markersAfterDelete.isEmpty)
+        do { try markerReload.saveLastTimeEntry(marker); preconditionFailure("Resurrected marker") } catch {}
+        // Collections have independent schemas, durable row edits, and atomic CSV imports.
+        let recordCSV = try InventoryCSV("Title,Artist,Catalog\nA record,An artist,0012\nAnother record,Another artist,0003")
+        let recordCollection = InventoryCollection(name: "Records", fields: recordCSV.fields)
+        try again.createInventory(recordCollection, rows: recordCSV.rows)
+        let animalCollection = InventoryCollection(name: "Stuffed animals", fields: ["Name", "Species"])
+        try again.createInventory(animalCollection, rows: [["Hippo", "Hippopotamus"]])
+        var inventoryRows = try again.inventoryRecords(for: recordCollection.id)
+        precondition(inventoryRows.count == 2 && inventoryRows.contains { $0.values[2] == "0012" })
+        let newRecord = InventoryRecord(collectionID: recordCollection.id, values: ["Third record", "Artist", "0004"])
+        try again.saveInventoryRecord(newRecord)
+        inventoryRows[0].values[1] = "Edited artist"
+        try again.saveInventoryRecord(inventoryRows[0])
+        let inventoryReload = CloudStore(directory: base, cloudEnabled: false, defaults: defaults, legacyDefaults: nil)
+        let reopenedInventory = try inventoryReload.inventoryRecords(for: recordCollection.id)
+        precondition(reopenedInventory.count == 3 && reopenedInventory.contains(inventoryRows[0]))
+        let animals = try inventoryReload.inventoryRecords(for: animalCollection.id)
+        precondition(animals.count == 1 && animals[0].values == ["Hippo", "Hippopotamus"])
+        let badCollection = InventoryCollection(name: "Bad import", fields: ["Name", "Notes"])
+        do { try inventoryReload.createInventory(badCollection, rows: [["Valid", "Row"], ["Too", "many", "values"]]); preconditionFailure("Partial import succeeded") } catch {}
+        let afterFailedImport = try inventoryReload.inventoryCollections()
+        let failedRows = try inventoryReload.inventoryRecords(for: badCollection.id)
+        precondition(!afterFailedImport.contains { $0.id == badCollection.id } && failedRows.isEmpty)
+        var deletedInventoryRow = newRecord; deletedInventoryRow.deletedAt = Date()
+        try inventoryReload.saveInventoryRecord(deletedInventoryRow)
+        do { try inventoryReload.saveInventoryRecord(newRecord); preconditionFailure("Resurrected inventory record") } catch {}
+        var changedSchema = recordCollection; changedSchema.fields.append("Extra")
+        do { try inventoryReload.saveInventoryCollection(changedSchema); preconditionFailure("Changed schema without migrating rows") } catch {}
+        let inventoryBackup = try JSONDecoder().decode(CloudStore.Backup.self, from: inventoryReload.exportBackup())
+        precondition(inventoryBackup.entries.contains { $0.key == "inventory.collection." + animalCollection.id.uuidString })
+        precondition(inventoryBackup.entries.filter { $0.key.hasPrefix("inventory.record.") }.count == 4)
+        var deletedCollection = recordCollection; deletedCollection.deletedAt = Date()
+        try inventoryReload.saveInventoryCollection(deletedCollection)
+        do { try inventoryReload.saveInventoryCollection(recordCollection); preconditionFailure("Resurrected collection") } catch {}
+        do { try inventoryReload.saveInventoryRecord(inventoryRows[0]); preconditionFailure("Edited a deleted collection") } catch {}
+        // Last Time ownership is a household filter, with Shared as the legacy default.
+        var sageMarker = LastTimeEntry(title: "Sage marker")
+        sageMarker.owner = .me
+        var danMarker = LastTimeEntry(title: "Dan marker")
+        danMarker.owner = .husband
+        let sharedMarker = LastTimeEntry(title: "Shared marker")
+        precondition(sharedMarker.assignedTo == .shared && sharedMarker.isVisible(to: .me) && sharedMarker.isVisible(to: .husband))
+        precondition(sageMarker.isVisible(to: .me) && !sageMarker.isVisible(to: .husband))
+        precondition(danMarker.isVisible(to: .husband) && !danMarker.isVisible(to: .me))
+        let legacyMarker = try JSONDecoder().decode(LastTimeEntry.self, from: JSONEncoder().encode(sharedMarker))
+        precondition(legacyMarker.owner == nil && legacyMarker.assignedTo == .shared)
+        try again.saveLastTimeEntry(sageMarker)
+        try again.saveLastTimeEntry(danMarker)
+        try again.saveLastTimeEntry(sharedMarker)
+        let ownershipReload = CloudStore(directory: base, cloudEnabled: false, defaults: defaults, legacyDefaults: nil)
+        let ownedMarkers = try ownershipReload.lastTimeEntries()
+        precondition(ownedMarkers.contains(sageMarker) && ownedMarkers.contains(danMarker) && ownedMarkers.contains(sharedMarker))
+        // Every new feature writes beneath the same shareable household root.
+        let householdRows = try ownershipReload.container.viewContext.fetch(NSFetchRequest<NSManagedObject>(entityName: "HHEntry"))
+        let lifePrefixes = ["waiting.record.", "waiting.update.", "borrowing.item.", "lasttime.entry.", "inventory.collection.", "inventory.record."]
+        let lifeRows = householdRows.filter { row in
+            guard let key = row.value(forKey: "key") as? String else { return false }
+            return lifePrefixes.contains { key.hasPrefix($0) }
+        }
+        precondition(!lifeRows.isEmpty && lifeRows.allSatisfy { $0.value(forKey: "household") != nil })
+        let homeIDs = Set(lifeRows.compactMap { ($0.value(forKey: "household") as? NSManagedObject)?.objectID })
+        precondition(homeIDs.count == 1)
         let entities = CloudStore.model().entities
         precondition(entities.allSatisfy { $0.uniquenessConstraints.isEmpty })
         precondition(entities.flatMap { $0.attributesByName.values }.allSatisfy { $0.isOptional })

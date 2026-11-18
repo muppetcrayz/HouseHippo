@@ -348,6 +348,141 @@ import CryptoKit
             revision += 1
         } catch { context.rollback(); throw error }
     }
+    // Separate update entries preserve independent additions from different devices.
+    private func waitingValues<T: Decodable>(_ type: T.Type, prefix: String) throws -> [T] {
+        var latest: [String: NSManagedObject] = [:]
+        for row in try entries(prefix: prefix) {
+            guard let key = row.value(forKey: "key") as? String else { continue }
+            if let old = latest[key], (old.value(forKey: "modifiedAt") as? Date ?? .distantPast) >= (row.value(forKey: "modifiedAt") as? Date ?? .distantPast) { continue }
+            latest[key] = row
+        }
+        return try latest.values.compactMap {
+            guard let data = $0.value(forKey: "data") as? Data else { return nil }
+            return try JSONDecoder().decode(type, from: data)
+        }
+    }
+    func waitingRecords() throws -> [WaitingRecord] {
+        try waitingValues(WaitingRecord.self, prefix: "waiting.record.").filter { $0.deletedAt == nil }.sorted {
+            let order = $0.title.localizedStandardCompare($1.title)
+            return order == .orderedSame ? $0.id.uuidString < $1.id.uuidString : order == .orderedAscending
+        }
+    }
+    func waitingUpdates(for id: UUID) throws -> [WaitingUpdate] {
+        try waitingValues(WaitingUpdate.self, prefix: "waiting.update.").filter { $0.recordID == id && $0.deletedAt == nil }.sorted {
+            $0.date == $1.date ? $0.id.uuidString < $1.id.uuidString : $0.date > $1.date
+        }
+    }
+    func saveWaitingRecord(_ record: WaitingRecord) throws {
+        let key = "waiting.record." + record.id.uuidString
+        if let data = try read(key), try JSONDecoder().decode(WaitingRecord.self, from: data).deletedAt != nil {
+            throw NSError(domain: "HouseHippo", code: 7, userInfo: [NSLocalizedDescriptionKey: "This Waiting For record was deleted."])
+        }
+        let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
+        try put(encoder.encode(record), key: key)
+    }
+    func saveWaitingUpdate(_ update: WaitingUpdate) throws {
+        guard let data = try read("waiting.record." + update.recordID.uuidString),
+              try JSONDecoder().decode(WaitingRecord.self, from: data).deletedAt == nil else {
+            throw NSError(domain: "HouseHippo", code: 7, userInfo: [NSLocalizedDescriptionKey: "This Waiting For record is no longer available."])
+        }
+        let key = "waiting.update." + update.id.uuidString
+        if let data = try read(key), try JSONDecoder().decode(WaitingUpdate.self, from: data).deletedAt != nil {
+            throw NSError(domain: "HouseHippo", code: 7, userInfo: [NSLocalizedDescriptionKey: "This update was deleted."])
+        }
+        let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
+        try put(encoder.encode(update), key: key)
+    }
+
+    func borrowedItems() throws -> [BorrowedItem] {
+        try waitingValues(BorrowedItem.self, prefix: "borrowing.item.").filter { $0.deletedAt == nil }.sorted {
+            let personOrder = $0.person.localizedStandardCompare($1.person)
+            if personOrder != .orderedSame { return personOrder == .orderedAscending }
+            let itemOrder = $0.item.localizedStandardCompare($1.item)
+            return itemOrder == .orderedSame ? $0.id.uuidString < $1.id.uuidString : itemOrder == .orderedAscending
+        }
+    }
+    func saveBorrowedItem(_ item: BorrowedItem) throws {
+        let key = "borrowing.item." + item.id.uuidString
+        if let data = try read(key), try JSONDecoder().decode(BorrowedItem.self, from: data).deletedAt != nil {
+            throw NSError(domain: "HouseHippo", code: 8, userInfo: [NSLocalizedDescriptionKey: "This borrowing or lending record was deleted."])
+        }
+        let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
+        try put(encoder.encode(item), key: key)
+    }
+
+    func lastTimeEntries() throws -> [LastTimeEntry] {
+        try waitingValues(LastTimeEntry.self, prefix: "lasttime.entry.").filter { $0.deletedAt == nil }.sorted {
+            let order = $0.title.localizedStandardCompare($1.title)
+            return order == .orderedSame ? $0.id.uuidString < $1.id.uuidString : order == .orderedAscending
+        }
+    }
+    func saveLastTimeEntry(_ entry: LastTimeEntry) throws {
+        let key = "lasttime.entry." + entry.id.uuidString
+        if let data = try read(key), try JSONDecoder().decode(LastTimeEntry.self, from: data).deletedAt != nil {
+            throw NSError(domain: "HouseHippo", code: 9, userInfo: [NSLocalizedDescriptionKey: "This Last Time entry was deleted."])
+        }
+        let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
+        try put(encoder.encode(entry), key: key)
+    }
+
+    func inventoryCollections() throws -> [InventoryCollection] {
+        try waitingValues(InventoryCollection.self, prefix: "inventory.collection.").filter { $0.deletedAt == nil }.sorted {
+            let order = $0.name.localizedStandardCompare($1.name)
+            return order == .orderedSame ? $0.id.uuidString < $1.id.uuidString : order == .orderedAscending
+        }
+    }
+    func inventoryRecords(for id: UUID) throws -> [InventoryRecord] {
+        try waitingValues(InventoryRecord.self, prefix: "inventory.record.").filter { $0.collectionID == id && $0.deletedAt == nil }.sorted {
+            let order = $0.displayTitle.localizedStandardCompare($1.displayTitle)
+            return order == .orderedSame ? $0.id.uuidString < $1.id.uuidString : order == .orderedAscending
+        }
+    }
+    func saveInventoryCollection(_ collection: InventoryCollection) throws {
+        let key = "inventory.collection." + collection.id.uuidString
+        if let data = try read(key) {
+            let old = try JSONDecoder().decode(InventoryCollection.self, from: data)
+            guard old.deletedAt == nil, old.fields == collection.fields else {
+                throw NSError(domain: "HouseHippo", code: 10, userInfo: [NSLocalizedDescriptionKey: "This collection was deleted or its fields changed. Reopen Inventory before saving."])
+            }
+        }
+        guard !collection.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              !collection.fields.isEmpty, collection.fields.allSatisfy({ !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }),
+              Set(collection.fields.map { $0.lowercased() }).count == collection.fields.count else {
+            throw NSError(domain: "HouseHippo", code: 10, userInfo: [NSLocalizedDescriptionKey: "Name the collection and give each field a unique name."])
+        }
+        let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
+        try put(encoder.encode(collection), key: key)
+    }
+    func saveInventoryRecord(_ record: InventoryRecord) throws {
+        guard let data = try read("inventory.collection." + record.collectionID.uuidString) else {
+            throw CocoaError(.validationMissingMandatoryProperty)
+        }
+        let collection = try JSONDecoder().decode(InventoryCollection.self, from: data)
+        guard collection.deletedAt == nil, collection.fields.count == record.values.count else {
+            throw NSError(domain: "HouseHippo", code: 10, userInfo: [NSLocalizedDescriptionKey: "This collection is no longer available or its fields changed. Reopen Inventory before saving."])
+        }
+        let key = "inventory.record." + record.id.uuidString
+        if let data = try read(key) {
+            let old = try JSONDecoder().decode(InventoryRecord.self, from: data)
+            guard old.deletedAt == nil, old.collectionID == record.collectionID else {
+                throw NSError(domain: "HouseHippo", code: 10, userInfo: [NSLocalizedDescriptionKey: "This record was deleted or moved. Reopen Inventory before saving."])
+            }
+        }
+        let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
+        try put(encoder.encode(record), key: key)
+    }
+    func createInventory(_ collection: InventoryCollection, rows: [[String]]) throws {
+        // Import all rows and their field definitions as one durable change.
+        try beginBatch()
+        defer { endBatch() }
+        do {
+            guard try read("inventory.collection." + collection.id.uuidString) == nil else { throw CocoaError(.validationMultipleErrors) }
+            try saveInventoryCollection(collection)
+            for values in rows { try saveInventoryRecord(InventoryRecord(collectionID: collection.id, values: values)) }
+            try context.save(); revision += 1
+        } catch { context.rollback(); throw error }
+    }
+
     func groceries() throws -> [GroceryItem] {
         if let loadError { throw loadError }
         let request = NSFetchRequest<NSManagedObject>(entityName: "HHEntry")

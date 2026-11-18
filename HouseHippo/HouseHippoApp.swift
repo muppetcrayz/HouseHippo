@@ -274,6 +274,81 @@ struct HouseNote: Identifiable, Codable, Equatable {
     var displayTitle: String { title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Untitled note" : title }
 }
 
+struct WaitingRecord: Identifiable, Codable, Equatable {
+    var id = UUID()
+    var title: String
+    var createdAt = Date()
+    var deletedAt: Date?
+}
+
+struct WaitingUpdate: Identifiable, Codable, Equatable {
+    var id = UUID()
+    var recordID: UUID
+    var text: String
+    var date = Date()
+    var deletedAt: Date?
+    func flexibleTask(recordTitle: String, owner: Reminder.Owner) -> Reminder {
+        var task = Reminder(title: text, message: "", date: Date(), frequency: .anytime)
+        task.kind = .task
+        task.hasDueDate = false
+        task.owner = owner
+        task.list = owner == .shared ? "One-off general tasks" : "One-off personal tasks"
+        task.taskNote = "Waiting For: \(recordTitle)\n\(date.formatted(date: .abbreviated, time: .shortened))\n\(text)"
+        return task
+    }
+}
+
+struct BorrowedItem: Identifiable, Codable, Equatable {
+    enum Direction: String, Codable, CaseIterable {
+        case borrowing, lending
+        var label: String { self == .borrowing ? "I have theirs" : "They have mine" }
+    }
+    var id = UUID()
+    var person: String
+    var item: String
+    var direction: Direction
+    var returnedAt: Date?
+    var deletedAt: Date?
+}
+
+struct LastTimeEntry: Identifiable, Codable, Equatable {
+    var id = UUID()
+    var title: String
+    var owner: Reminder.Owner? // Older markers default to Shared.
+    var assignedTo: Reminder.Owner { owner ?? .shared }
+    func isVisible(to person: Reminder.Owner) -> Bool { assignedTo == .shared || assignedTo == person }
+    // Store a calendar date, so changing time zones cannot move a marker to another day.
+    var year: Int
+    var month: Int
+    var day: Int
+    var deletedAt: Date?
+    init(title: String, date: Date = Date(), calendar: Calendar = Calendar(identifier: .gregorian)) {
+        self.title = title
+        let parts = calendar.dateComponents([.year, .month, .day], from: date)
+        year = parts.year!; month = parts.month!; day = parts.day!
+    }
+    func date(calendar: Calendar = Calendar(identifier: .gregorian)) -> Date {
+        calendar.date(from: DateComponents(year: year, month: month, day: day))!
+    }
+    mutating func setDate(_ date: Date, calendar: Calendar = Calendar(identifier: .gregorian)) {
+        let parts = calendar.dateComponents([.year, .month, .day], from: date)
+        year = parts.year!; month = parts.month!; day = parts.day!
+    }
+    func elapsed(since now: Date = Date(), calendar: Calendar = Calendar(identifier: .gregorian)) -> String {
+        let start = date(calendar: calendar)
+        let today = calendar.startOfDay(for: now)
+        let days = calendar.dateComponents([.day], from: start, to: today).day ?? 0
+        if days < 0 { return "In the future" }
+        if days == 0 { return "Today" }
+        if days == 1 { return "Yesterday" }
+        let parts = calendar.dateComponents([.year, .month], from: start, to: today)
+        if let years = parts.year, years > 0 { return years == 1 ? "About a year ago" : "About \(years) years ago" }
+        if let months = parts.month, months > 0 { return months == 1 ? "About a month ago" : "About \(months) months ago" }
+        if days >= 7 { let weeks = days / 7; return weeks == 1 ? "About a week ago" : "About \(weeks) weeks ago" }
+        return "\(days) days ago"
+    }
+}
+
 struct AppleNoteImportRecord: Identifiable, Sendable {
     var id: String
     var title: String
@@ -700,12 +775,22 @@ struct HouseHippoHome: View {
                     List(selection: Binding<Int?>(get: { selectedTab }, set: { if let value = $0 { selectedTab = value } })) {
                         Label("Dashboard", systemImage: "house").tag(2)
                         Label("Tasks", systemImage: "checklist").tag(1)
+                        Section("Life Management") {
+                            Label("Waiting For", systemImage: "clock").tag(6)
+                            Label("Borrowing & Lending", systemImage: "arrow.left.arrow.right").tag(7)
+                            Label("Last Time", systemImage: "calendar.badge.clock").tag(8)
+                            Label("Inventory", systemImage: "archivebox").tag(9)
+                        }
                         Label("Meals", systemImage: "fork.knife").tag(5)
                     }.listStyle(.sidebar)
                 }.navigationSplitViewColumnWidth(min: 170, ideal: 200, max: 250)
             } detail: {
                 switch selectedTab {
                 case 1: TaskList(scope: $taskScope, completedTasksRequest: completedTasksRequest, mode: .tasks)
+                case 6: NavigationStack { WaitingForView() }
+                case 7: NavigationStack { BorrowingLendingView() }
+                case 8: NavigationStack { LastTimeView() }
+                case 9: InventoryView()
                 case 2: HomeDashboard(navigate: { selectedTab = $0 }, showCompletedTasks: showCompletedTasks)
                 default: MealsView()
                 }
@@ -715,6 +800,10 @@ struct HouseHippoHome: View {
             TaskList(scope: .constant("Active"), mode: .notifications).tabItem { Label("Notifications", systemImage: "bell") }.tag(0)
             TaskList(scope: $taskScope, completedTasksRequest: completedTasksRequest, mode: .tasks).tabItem { Label("Tasks", systemImage: "checklist") }.tag(1)
             HomeDashboard(navigate: { selectedTab = $0 }, showCompletedTasks: showCompletedTasks).tabItem { Label("Dashboard", systemImage: "house") }.tag(2)
+            NavigationStack { WaitingForView() }.tabItem { Label("Waiting For", systemImage: "clock") }.tag(6)
+            NavigationStack { BorrowingLendingView() }.tabItem { Label("Borrowing & Lending", systemImage: "arrow.left.arrow.right") }.tag(7)
+            NavigationStack { LastTimeView() }.tabItem { Label("Last Time", systemImage: "calendar.badge.clock") }.tag(8)
+            InventoryView().tabItem { Label("Inventory", systemImage: "archivebox") }.tag(9)
             MealsView().tabItem { Label("Meals", systemImage: "fork.knife") }.tag(5)
         }
             #endif

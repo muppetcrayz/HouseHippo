@@ -5,6 +5,7 @@ root = Path(__file__).resolve().parents[1]
 app = (root/'HouseHippo/HouseHippoApp.swift').read_text()
 model = app[app.index('struct Reminder:'):app.index('final class NotificationDelegate')]
 model += (root/'HouseHippo/GroceryModel.swift').read_text() + (root/'HouseHippo/Recurrence.swift').read_text()
+model += "\n" + (root / "HouseHippo/InventoryModel.swift").read_text()
 store = (root/'HouseHippo/CloudStore.swift').read_text()
 checks = r'''
 @main struct RepairChecks {

@@ -6,6 +6,10 @@ A native SwiftUI app for household tasks, meal planning, and groceries on iOS 17
 
 - Dashboard with today's tasks, flexible tasks, and completion counts.
 - Personal and shared tasks with recurring schedules, completion history, and attached notes.
+- Life Management with Waiting For records, dated updates, and flexible task creation.
+- Borrowing & Lending grouped by person, with return checkoffs and history.
+- Last Time markers with date-only entries, fuzzy elapsed time, and Shared/Sage/Dan filters.
+- Inventory collections with independent fields, CSV import, search, and editable records.
 - Weekly dinner planning and a categorized grocery checklist.
 - iCloud syncing and household sharing.
 - Optional Apple Reminders syncing through one configured Mac. Flexible tasks stay in HouseHippo.
@@ -31,6 +35,7 @@ Run focused checks on macOS with Xcode's Swift compiler installed:
 ```sh
 python3 Tests/check_schedule.py
 python3 Tests/check_storage.py
+python3 Tests/check_inventory.py
 python3 Tests/check_sync_policy.py
 python3 Tests/check_sync_failures.py
 python3 Tests/check_household_repair.py
@@ -43,3 +48,11 @@ Private backups, databases, build archives, and signing credentials are excluded
 On your iPhone, create a shortcut in Apple's Shortcuts app with an **Open App** action, choose the app (for example, Fertility Friend), and name the shortcut **Open Fertility Friend**. In HouseHippo's notification details, enter that exact name under **When tapped**, use **Test shortcut**, and save. Tapping the scheduled notification opens HouseHippo, then runs the shortcut. You may need to unlock your phone first.
 
 Leave the name blank for the usual HouseHippo behavior. Shortcuts must exist on each receiving iPhone; if you rename one, update the notification. Shortcuts reports missing shortcuts itself. HouseHippo cannot verify that a named shortcut exists or that its actions succeed.
+
+## Inventory imports
+
+Export a table from Numbers as CSV, then open **Inventory → Import CSV**. The first row must contain unique, nonempty column headings. Review the collection name, fields, and first record, then import. Each import creates a separate collection; it does not merge into an existing one. Comma, semicolon, and tab separators, quoted multiline values, UTF-8, and BOM-marked UTF-16 files are supported. Values remain text so catalog numbers and leading zeros stay intact. Short rows receive empty trailing fields; invalid quoting or excess values cause an error before anything is saved.
+
+Open a collection to search all its fields, add records, or edit existing ones. You can also create an empty collection by entering field names, one per line. Waiting For, Borrowing & Lending, Last Time, and Inventory have separate navigation entries. On compact iPhone layouts, additional tabs are available through More.
+
+All Life Management records belong to the shared household, including inventory collections and their imported records. Last Time markers can be labeled Shared, Sage, or Dan. Shared markers appear in both personal filters; labels filter the view and do not restrict household access. Older markers default to Shared.

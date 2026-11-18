@@ -4,6 +4,17 @@ struct InventoryCollection: Identifiable, Codable, Equatable {
     var id = UUID()
     var name: String
     var fields: [String]
+    // Missing in older collections: use the first field. -1 means no large title.
+    var titleFieldIndex: Int?
+    var effectiveTitleFieldIndex: Int? {
+        let index = titleFieldIndex ?? 0
+        return fields.indices.contains(index) ? index : nil
+    }
+    func title(for record: InventoryRecord) -> String? {
+        guard let index = effectiveTitleFieldIndex, record.values.indices.contains(index) else { return nil }
+        let value = record.values[index]
+        return value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Untitled record" : value
+    }
     var deletedAt: Date?
 }
 

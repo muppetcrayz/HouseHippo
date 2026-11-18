@@ -432,8 +432,11 @@ import CryptoKit
         }
     }
     func inventoryRecords(for id: UUID) throws -> [InventoryRecord] {
-        try waitingValues(InventoryRecord.self, prefix: "inventory.record.").filter { $0.collectionID == id && $0.deletedAt == nil }.sorted {
-            let order = $0.displayTitle.localizedStandardCompare($1.displayTitle)
+        let collection = try read("inventory.collection." + id.uuidString).map { try JSONDecoder().decode(InventoryCollection.self, from: $0) }
+        return try waitingValues(InventoryRecord.self, prefix: "inventory.record.").filter { $0.collectionID == id && $0.deletedAt == nil }.sorted {
+            let lhs = collection?.title(for: $0) ?? $0.displayTitle
+            let rhs = collection?.title(for: $1) ?? $1.displayTitle
+            let order = lhs.localizedStandardCompare(rhs)
             return order == .orderedSame ? $0.id.uuidString < $1.id.uuidString : order == .orderedAscending
         }
     }
@@ -446,6 +449,7 @@ import CryptoKit
             }
         }
         guard !collection.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              collection.titleFieldIndex == nil || collection.titleFieldIndex == -1 || collection.fields.indices.contains(collection.titleFieldIndex!),
               !collection.fields.isEmpty, collection.fields.allSatisfy({ !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }),
               Set(collection.fields.map { $0.lowercased() }).count == collection.fields.count else {
             throw NSError(domain: "HouseHippo", code: 10, userInfo: [NSLocalizedDescriptionKey: "Name the collection and give each field a unique name."])

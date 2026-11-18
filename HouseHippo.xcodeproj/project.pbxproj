@@ -16,6 +16,7 @@
 		980000000000000000000001 /* HouseHippo/WaitingFor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 980000000000000000000002 /* HouseHippo/WaitingFor.swift */; };
 		990000000000000000000001 /* HouseHippo/InventoryModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 990000000000000000000002 /* HouseHippo/InventoryModel.swift */; };
 		991000000000000000000001 /* HouseHippo/Inventory.swift in Sources */ = {isa = PBXBuildFile; fileRef = 991000000000000000000002 /* HouseHippo/Inventory.swift */; };
+		992000000000000000000001 /* HouseHippo/Design.swift in Sources */ = {isa = PBXBuildFile; fileRef = 992000000000000000000002 /* HouseHippo/Design.swift */; };
 		A00000000000000000000010 /* HouseHippo/HouseHippoApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000008 /* HouseHippo/HouseHippoApp.swift */; };
 		B00000000000000000000001 /* HouseHippo/Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000002 /* HouseHippo/Assets.xcassets */; };
 		C00000000000000000000001 /* HouseHippo/CloudStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = C00000000000000000000002 /* HouseHippo/CloudStore.swift */; };
@@ -34,6 +35,7 @@
 		980000000000000000000002 /* HouseHippo/WaitingFor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HouseHippo/WaitingFor.swift; sourceTree = "<group>"; };
 		990000000000000000000002 /* HouseHippo/InventoryModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HouseHippo/InventoryModel.swift; sourceTree = "<group>"; };
 		991000000000000000000002 /* HouseHippo/Inventory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HouseHippo/Inventory.swift; sourceTree = "<group>"; };
+		992000000000000000000002 /* HouseHippo/Design.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HouseHippo/Design.swift; sourceTree = "<group>"; };
 		A00000000000000000000008 /* HouseHippo/HouseHippoApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HouseHippo/HouseHippoApp.swift; sourceTree = "<group>"; };
 		A00000000000000000000009 /* HouseHippo.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; path = HouseHippo.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		B00000000000000000000002 /* HouseHippo/Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = HouseHippo/Assets.xcassets; sourceTree = "<group>"; };
@@ -57,6 +59,7 @@
 		A00000000000000000000003 = {
 			isa = PBXGroup;
 			children = (
+				992000000000000000000002 /* HouseHippo/Design.swift */,
 				991000000000000000000002 /* HouseHippo/Inventory.swift */,
 				990000000000000000000002 /* HouseHippo/InventoryModel.swift */,
 				980000000000000000000002 /* HouseHippo/WaitingFor.swift */,
@@ -160,6 +163,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				992000000000000000000001 /* HouseHippo/Design.swift in Sources */,
 				991000000000000000000001 /* HouseHippo/Inventory.swift in Sources */,
 				990000000000000000000001 /* HouseHippo/InventoryModel.swift in Sources */,
 				980000000000000000000001 /* HouseHippo/WaitingFor.swift in Sources */,
@@ -206,7 +210,7 @@
 				CODE_SIGN_ENTITLEMENTS = HouseHippo/HouseHippoiOS.entitlements;
 				"CODE_SIGN_ENTITLEMENTS[sdk=macosx*]" = HouseHippo/HouseHippoMac.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 19;
+				CURRENT_PROJECT_VERSION = 20;
 				DEVELOPMENT_TEAM = E25BK4VCB2;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
@@ -243,7 +247,7 @@
 				CODE_SIGN_ENTITLEMENTS = HouseHippo/HouseHippoiOS.entitlements;
 				"CODE_SIGN_ENTITLEMENTS[sdk=macosx*]" = HouseHippo/HouseHippoMac.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 19;
+				CURRENT_PROJECT_VERSION = 20;
 				DEVELOPMENT_TEAM = E25BK4VCB2;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;

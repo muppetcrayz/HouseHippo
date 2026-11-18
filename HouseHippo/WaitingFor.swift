@@ -3,43 +3,57 @@ import SwiftUI
 struct WaitingForView: View {
     @ObservedObject private var cloud = CloudStore.shared
     @State private var records: [WaitingRecord] = []
-    @State private var title = ""
+    @State private var adding = false
     @State private var issue: String?
     var body: some View {
-        Group {
-            List {
-                Section {
-                    HStack {
-                        TextField("What are you waiting for?", text: $title).onSubmit(add)
-                        Button("Add", systemImage: "plus", action: add)
-                            .disabled(title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                    }
-                }
-                if records.isEmpty {
-                    Text("Keep a record of what you’re waiting for, then add dated updates as things happen.")
-                        .foregroundStyle(.secondary)
-                }
-                ForEach(records) { record in
-                    NavigationLink { WaitingRecordView(record: record) } label: {
-                        Text(record.title)
-                    }
-                }
+        List {
+            if records.isEmpty {
+                HippoEmptyState(title: "What are you waiting for?", icon: "clock", message: "Add a record, then keep dated updates as things happen.")
             }
-            .navigationTitle("Waiting For")
-            .task { reload() }
-            .onChange(of: cloud.revision) { _, _ in reload() }
-            .alert("Waiting For", isPresented: Binding(get: { issue != nil }, set: { if !$0 { issue = nil } })) {
-                Button("OK") { issue = nil }
-            } message: { Text(issue ?? "") }
+            ForEach(records) { record in
+                NavigationLink { WaitingRecordView(record: record) } label: { Text(record.title) }
+            }
         }
+        .hippoPage()
+        .navigationTitle("Waiting For")
+        .toolbar { ToolbarItem(placement: .primaryAction) { Button("Add record", systemImage: "plus") { adding = true } } }
+        .task { reload() }
+        .onChange(of: cloud.revision) { _, _ in reload() }
+        .sheet(isPresented: $adding) { WaitingRecordCreator().frame(minWidth: 340, minHeight: 240) }
+        .alert("Waiting For", isPresented: Binding(get: { issue != nil }, set: { if !$0 { issue = nil } })) {
+            Button("OK") { issue = nil }
+        } message: { Text(issue ?? "") }
     }
     private func reload() {
         do { records = try cloud.waitingRecords() } catch { issue = error.localizedDescription }
     }
-    private func add() {
+}
+
+private struct WaitingRecordCreator: View {
+    @Environment(\.dismiss) private var dismiss
+    @State private var title = ""
+    @State private var issue: String?
+    var body: some View {
+        NavigationStack {
+            Form {
+                HippoField("Waiting for", text: $title, prompt: "e.g. A call back from Doug", autofocus: true)
+            }.hippoForm()
+            .navigationTitle("Add Waiting For record")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save", action: save).disabled(title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+            }
+            .alert("Could not create record", isPresented: Binding(get: { issue != nil }, set: { if !$0 { issue = nil } })) {
+                Button("OK") { issue = nil }
+            } message: { Text(issue ?? "") }
+        }
+    }
+    private func save() {
         let value = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !value.isEmpty else { return }
-        do { try cloud.saveWaitingRecord(WaitingRecord(title: value)); title = ""; reload() }
+        do { try CloudStore.shared.saveWaitingRecord(WaitingRecord(title: value)); dismiss() }
         catch { issue = error.localizedDescription }
     }
 }
@@ -58,11 +72,6 @@ private struct WaitingRecordView: View {
     @State private var title = ""
     var body: some View {
         List {
-            Section {
-                Button("Add update", systemImage: "plus") {
-                    editing = WaitingUpdate(recordID: record.id, text: "")
-                }
-            }
             Section("Updates · newest first") {
                 if updates.isEmpty { Text("No updates yet.").foregroundStyle(.secondary) }
                 ForEach(updates) { update in
@@ -76,17 +85,23 @@ private struct WaitingRecordView: View {
                     }.buttonStyle(.plain)
                     Button("Create flexible task", systemImage: "plus.circle") {
                         taskDraft = update.flexibleTask(recordTitle: record.title, owner: Reminder.Owner(rawValue: person) ?? .me)
-                    }.font(.callout)
+                    }.font(.callout).buttonStyle(.borderless)
                     }
                 }
             }
         }
+        .hippoPage()
         .navigationTitle(record.title)
         .toolbar {
-            Menu {
-                Button("Edit title") { title = record.title; editingTitle = true }
-                Button("Delete record", role: .destructive) { confirmingDelete = true }
-            } label: { Label("Record options", systemImage: "ellipsis.circle") }
+            ToolbarItem(placement: .primaryAction) {
+                Button("Add update", systemImage: "plus") { editing = WaitingUpdate(recordID: record.id, text: "") }
+            }
+            ToolbarItem(placement: .automatic) {
+                Menu {
+                    Button("Edit title") { title = record.title; editingTitle = true }
+                    Button("Delete record", role: .destructive) { confirmingDelete = true }
+                } label: { Label("Record options", systemImage: "ellipsis.circle") }
+            }
         }
         .task { reload() }
         .onChange(of: cloud.revision) { _, _ in reload() }
@@ -129,13 +144,13 @@ private struct WaitingUpdateEditor: View {
         NavigationStack {
             Form {
                 Section("Update") {
-                    TextEditor(text: $update.text).frame(minHeight: 150).accessibilityLabel("Update text")
+                    HippoTextArea(label: "What happened?", text: $update.text)
                     DatePicker("Date and time", selection: $update.date, displayedComponents: [.date, .hourAndMinute])
                 }
                 Section {
                     Button("Delete update", role: .destructive) { confirmingDelete = true }
                 }
-            }.formStyle(.grouped)
+            }.hippoForm()
             .navigationTitle("Waiting For update")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
@@ -165,14 +180,14 @@ private struct WaitingFlexibleTaskEditor: View {
         NavigationStack {
             Form {
                 Section("Flexible task") {
-                    TextField("Task title", text: $task.title, axis: .vertical)
+                    HippoField("Task title", text: $task.title, prompt: "What needs doing?")
                     Picker("For", selection: $task.owner) {
                         ForEach(Reminder.Owner.allCases, id: \.self) { Text($0.displayName).tag($0) }
                     }
                     Text("No due date. This will appear with your flexible tasks.").font(.caption).foregroundStyle(.secondary)
                 }
                 TaskNoteSection(reminder: $task)
-            }.formStyle(.grouped)
+            }.hippoForm()
             .navigationTitle("Create flexible task")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
@@ -204,14 +219,10 @@ struct BorrowingLendingView: View {
     var body: some View {
         List {
             Section {
-                Button("Add item", systemImage: "plus") {
-                    editing = BorrowedItem(person: "", item: "", direction: .borrowing)
-                }
                 Toggle("Show returned items", isOn: $showReturned)
             }
             if items.isEmpty {
-                Text("Add a person and an item to keep track of what you have of theirs or what they have of yours.")
-                    .foregroundStyle(.secondary)
+                HippoEmptyState(title: "Keep track of who has what", icon: "arrow.left.arrow.right", message: "Add an item and a person. Check it off when it’s returned.")
             }
             ForEach(people, id: \.self) { person in
                 let visible = items.filter { $0.person == person && (showReturned || $0.returnedAt == nil) }
@@ -247,7 +258,13 @@ struct BorrowingLendingView: View {
                 Text("Everything has been returned. Turn on Show returned items to see the history.").foregroundStyle(.secondary)
             }
         }
+        .hippoPage()
         .navigationTitle("Borrowing & Lending")
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button("Add item", systemImage: "plus") { editing = BorrowedItem(person: "", item: "", direction: .borrowing) }
+            }
+        }
         .task { reload() }
         .onChange(of: cloud.revision) { _, _ in reload() }
         .sheet(item: $editing) { BorrowedItemEditor(item: $0, people: people).frame(minWidth: 320, minHeight: 350) }
@@ -273,13 +290,13 @@ private struct BorrowedItemEditor: View {
         NavigationStack {
             Form {
                 Section {
-                    TextField("Person’s name", text: $item.person)
+                    HippoField("Person", text: $item.person, prompt: "Person’s name")
                     if !people.isEmpty {
                         Menu("Choose existing person") {
                             ForEach(people, id: \.self) { person in Button(person) { item.person = person } }
                         }
                     }
-                    TextField("Item", text: $item.item, axis: .vertical)
+                    HippoField("Item", text: $item.item, prompt: "e.g. Ladder or a book")
                     Picker("Who has it?", selection: $item.direction) {
                         ForEach(BorrowedItem.Direction.allCases, id: \.self) { Text($0.label).tag($0) }
                     }
@@ -289,7 +306,7 @@ private struct BorrowedItemEditor: View {
                     }
                 }
                 Section { Button("Delete item", role: .destructive) { confirmingDelete = true } }
-            }.formStyle(.grouped)
+            }.hippoForm()
             .navigationTitle("Borrowing or lending")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
@@ -332,15 +349,9 @@ struct LastTimeView: View {
                     Text("Sage + Shared").tag(Reminder.Owner.me.rawValue)
                     Text("Dan + Shared").tag(Reminder.Owner.husband.rawValue)
                 }
-                Button("Add marker", systemImage: "plus") {
-                    var entry = LastTimeEntry(title: "")
-                    entry.owner = Reminder.Owner(rawValue: filter) ?? .shared
-                    editing = entry
-                }
             }
             if entries.isEmpty {
-                Text("Keep track of the last time you did something. Add a name and choose a date.")
-                    .foregroundStyle(.secondary)
+                HippoEmptyState(title: "Remember the last time", icon: "calendar.badge.clock", message: "Add a marker and a date. See how long it’s been at a glance.")
             }
             if !entries.isEmpty && visibleEntries.isEmpty {
                 Text("No markers for this filter.").foregroundStyle(.secondary)
@@ -349,17 +360,26 @@ struct LastTimeView: View {
                 Button { editing = entry } label: {
                     VStack(alignment: .leading, spacing: 6) {
                         Text(entry.title).foregroundStyle(.primary)
-                        Text(entry.assignedTo.displayName).font(.caption).foregroundStyle(.secondary)
                         TimelineView(.periodic(from: .now, by: 60)) { context in
                             Text(entry.elapsed(since: context.date)).font(.callout).foregroundStyle(.teal)
                         }
-                        Text(entry.date().formatted(date: .long, time: .omitted))
+                        Text(entry.date().formatted(date: .abbreviated, time: .omitted) + " · " + entry.assignedTo.displayName)
                             .font(.caption).foregroundStyle(.secondary)
                     }.padding(.vertical, 4).frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
                 }.buttonStyle(.plain)
             }
         }
+        .hippoPage()
         .navigationTitle("Last Time")
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button("Add marker", systemImage: "plus") {
+                    var entry = LastTimeEntry(title: "")
+                    entry.owner = Reminder.Owner(rawValue: filter) ?? .shared
+                    editing = entry
+                }
+            }
+        }
         .task { reload() }
         .onChange(of: cloud.revision) { _, _ in reload() }
         .sheet(item: $editing) { entry in
@@ -384,7 +404,7 @@ private struct LastTimeEditor: View {
         NavigationStack {
             Form {
                 Section {
-                    TextField("What did you do?", text: $entry.title, axis: .vertical)
+                    HippoField("Marker", text: $entry.title, prompt: "e.g. Cleaned the gutters")
                     Picker("For", selection: Binding(get: { entry.assignedTo }, set: { entry.owner = $0 })) {
                         ForEach(Reminder.Owner.allCases, id: \.self) { Text($0.displayName).tag($0) }
                     }
@@ -396,7 +416,7 @@ private struct LastTimeEditor: View {
                 if !isNew {
                     Section { Button("Delete marker", role: .destructive) { confirmingDelete = true } }
                 }
-            }.formStyle(.grouped)
+            }.hippoForm()
             .navigationTitle(isNew ? "Add Last Time marker" : "Edit Last Time marker")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }

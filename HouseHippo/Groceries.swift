@@ -9,10 +9,10 @@ struct GroceryView: View {
     private var items: [GroceryItem] { (try? cloud.groceries()) ?? [] }
     var body: some View {
         let snapshot = items
-        VStack(alignment: .leading, spacing: 16) {
-            HStack {
-                TextField("Add groceries, e.g. 2 lb apples", text: $name).onSubmit(add)
-                Button("Add", systemImage: "plus") { add() }.disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .bottom) {
+                HippoField("Add groceries", text: $name, prompt: "e.g. 2 lb apples").onSubmit(add)
+                Button("Add", systemImage: "plus") { add() }.buttonStyle(.borderedProminent).frame(minHeight: 48).disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
             if snapshot.isEmpty { Text("Add your first item. Categories are suggested automatically.").font(.callout).foregroundStyle(.secondary) }
             ForEach(GroceryCategory.allCases, id: \.self) { category in
@@ -49,16 +49,16 @@ struct GroceryView: View {
             Button {
                 var updated = item; updated.checked.toggle()
                 do { try cloud.saveGrocery(updated) } catch { issue = error.localizedDescription }
-            } label: { Image(systemName: item.checked ? "checkmark.circle.fill" : "circle").font(.title2).foregroundStyle(.teal).frame(width: 32, height: 36).contentShape(Rectangle()) }
+            } label: { Image(systemName: item.checked ? "checkmark.circle.fill" : "circle").font(.title2).foregroundStyle(.teal).frame(width: 32, height: 44).contentShape(Rectangle()) }
                 .buttonStyle(.plain).accessibilityLabel(item.checked ? "Uncheck " + item.name : "Check off " + item.name)
             Button { editing = item } label: {
                 Text(item.name).strikethrough(item.checked).foregroundStyle(item.checked ? .secondary : .primary)
-                    .frame(maxWidth: .infinity, minHeight: 36, alignment: .leading).contentShape(Rectangle())
+                    .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading).contentShape(Rectangle())
             }.buttonStyle(.plain)
             Menu {
                 Button("Edit item") { editing = item }
                 Button("Delete", role: .destructive) { do { try cloud.deleteGrocery(item) } catch { issue = error.localizedDescription } }
-            } label: { Image(systemName: "ellipsis").frame(width: 30, height: 36).contentShape(Rectangle()) }
+            } label: { Image(systemName: "ellipsis").frame(width: 30, height: 44).contentShape(Rectangle()) }
             #if os(macOS)
             .menuStyle(.borderlessButton)
             #endif
@@ -81,13 +81,13 @@ struct GroceryEditor: View {
     var body: some View {
         NavigationStack {
             Form {
-                TextField("Item and quantity", text: $item.name)
+                HippoField("Item and quantity", text: $item.name, prompt: "e.g. 2 lb apples")
                 Picker("Category", selection: $item.categoryOverride) {
                     Text("Automatic (\(GroceryCategory.suggest(for: item.name).rawValue))").tag(Optional<GroceryCategory>.none)
                     ForEach(GroceryCategory.allCases, id: \.self) { Text($0.rawValue).tag(Optional($0)) }
                 }
                 Toggle("Checked off", isOn: $item.checked)
-            }.formStyle(.grouped).navigationTitle("Grocery item")
+            }.hippoForm().navigationTitle("Grocery item")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {

@@ -56,3 +56,7 @@ Export a table from Numbers as CSV, then open **Inventory → Import CSV**. The 
 Open a collection to search all its fields, add records, or edit existing ones. You can also create an empty collection by entering field names, one per line. Waiting For, Borrowing & Lending, Last Time, and Inventory have separate navigation entries. On compact iPhone layouts, additional tabs are available through More.
 
 All Life Management records belong to the shared household, including inventory collections and their imported records. Last Time markers can be labeled Shared, Sage, or Dan. Shared markers appear in both personal filters; labels filter the view and do not restrict household access. Older markers default to Shared.
+
+In each inventory collection, **Main title** chooses which field appears as a record’s heading, or **None** shows only labeled fields. This preference is saved with the collection and shared with the household. The Tasks page has an **Everyone / Sage / Dan / Shared** filter, applied to both active and completed/delayed tasks. Waiting For’s **Add record** button opens a title form.
+
+The main lists use compact rows and inline iPhone navigation titles. Add actions live in toolbars. Editing forms use persistent labels, outlined inputs, and a visible focus ring. Inventory rows show a short preview; opening a record shows every field. The dashboard and Mac sidebar retain their existing layout.

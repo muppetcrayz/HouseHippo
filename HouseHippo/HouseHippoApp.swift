@@ -825,6 +825,7 @@ enum TaskMode { case dashboard, tasks, notifications }
 struct TaskList: View {
     @EnvironmentObject private var store: ReminderStore
     @AppStorage("househippo.person") private var person = Reminder.Owner.me.rawValue
+    @AppStorage("househippo.tasks.ownerFilter") private var ownerFilter = "All"
     @State private var search = ""
     @State private var editing: Reminder?
     @State private var randomPick: Reminder?
@@ -837,9 +838,10 @@ struct TaskList: View {
     private var filtered: [Reminder] {
         store.reminders.filter { task in
             let visible = mode != .dashboard || task.owner == .shared || task.owner.rawValue == person
+            let matchesOwner = mode != .tasks || (Reminder.Owner(rawValue: ownerFilter).map { task.owner == $0 } ?? true)
             let relevant = mode == .notifications ? task.isNotification : !task.isNotification
             let matches = search.isEmpty || (task.title + " " + task.list).localizedCaseInsensitiveContains(search)
-            return visible && relevant && matches && (mode != .dashboard || task.isDueToday(at: dashboardNow) || task.isAvailableFlexible(at: dashboardNow)) && (scope == "Completed" ? (task.wasCompletedToday(at: dashboardNow) || task.isDelayed(at: dashboardNow)) : !task.completed)
+            return visible && matchesOwner && relevant && matches && (mode != .dashboard || task.isDueToday(at: dashboardNow) || task.isAvailableFlexible(at: dashboardNow)) && (scope == "Completed" ? (task.wasCompletedToday(at: dashboardNow) || task.isDelayed(at: dashboardNow)) : !task.completed)
         }
     }
     var body: some View {
@@ -877,12 +879,16 @@ struct TaskList: View {
                 }
                 if mode == .tasks {
                     Section {
+                        Picker("For", selection: $ownerFilter) {
+                            Text("Everyone").tag("All")
+                            ForEach(Reminder.Owner.allCases, id: \.self) { Text($0.displayName).tag($0.rawValue) }
+                        }
                         Picker("Show", selection: $scope) { Text("Active").tag("Active"); Text("Completed / delayed").tag("Completed") }.pickerStyle(.segmented)
                     }
                 }
                 if filtered.isEmpty {
                     Section {
-                        ContentUnavailableView(mode == .notifications ? "No notifications yet" : mode == .dashboard ? "Nothing due today" : scope == "Completed" ? "Nothing completed or delayed" : "All clear", systemImage: mode == .notifications ? "bell" : "checkmark.circle", description: Text(mode == .notifications ? "Add a notification to schedule an alert. Tasks and reminders stay silent." : mode == .dashboard ? "Your other reminders are in Tasks." : scope == "Completed" ? "Tasks completed today and delayed tasks appear here so you can bring them back." : "Add a task or import your Apple Reminders."))
+                        HippoEmptyState(title: mode == .notifications ? "No notifications yet" : mode == .dashboard ? "Nothing due today" : scope == "Completed" ? "Nothing completed or delayed" : "All clear", icon: mode == .notifications ? "bell" : "checkmark.circle", message: mode == .notifications ? "Add a notification to schedule an alert. Tasks and reminders stay silent." : mode == .dashboard ? "Your other reminders are in Tasks." : scope == "Completed" ? "Tasks completed today and delayed tasks appear here so you can bring them back." : "Add a task or import your Apple Reminders.")
                         if mode != .notifications && (mode != .dashboard || !store.reminders.contains(where: { !$0.isNotification })) {
                             Button("Import Apple Reminders…", systemImage: "square.and.arrow.down") { importing = true }
                         }
@@ -903,6 +909,7 @@ struct TaskList: View {
                     taskSection("Your notifications", tasks: filtered)
                 }
             }
+            .hippoPage(enabled: mode != .dashboard)
             .navigationTitle(mode == .dashboard ? "HouseHippo" : mode == .tasks ? "Tasks" : "Notifications")
             .searchable(text: $search, prompt: "Search tasks and lists")
             .onAppear { dashboardNow = Date() }
@@ -963,11 +970,11 @@ struct TaskList: View {
                                 .accessibilityLabel(scope == "Completed" ? (task.isDelayed(at: dashboardNow) ? "Move back to today" : "Undo completion") : "Mark done")
                         }
                         Button { editing = task } label: {
-                            VStack(alignment: .leading, spacing: 5) {
+                            VStack(alignment: .leading, spacing: 3) {
                                 Text(task.title).font(.headline).foregroundStyle(.primary)
                                 Text(task.summary).font(.caption).foregroundStyle(task.isOverdue() ? .red : .secondary)
-                                Text("\(task.list) · \(task.owner.displayName)" + (task.isNotification && !task.enabled ? " · Paused" : "")).font(.caption).foregroundStyle(.secondary)
-                                if let last = task.lastCompleted { Text("Last done \(last.formatted(date: .abbreviated, time: .omitted))").font(.caption).foregroundStyle(.secondary) }
+                                Text("\(task.list) · \(task.owner.displayName)" + (task.isNotification && !task.enabled ? " · Paused" : "") + (task.lastCompleted.map { " · Last done " + $0.formatted(date: .abbreviated, time: .omitted) } ?? ""))
+                                    .font(.caption).foregroundStyle(.secondary).lineLimit(2)
                             }
                             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
                             .padding(.vertical, 8)
@@ -1034,9 +1041,9 @@ struct ReminderEditor: View {
         NavigationStack {
             Form {
                 Section(reminder.isNotification ? "Notification" : "Task") {
-                    TextField("Title", text: $reminder.title)
+                    HippoField("Title", text: $reminder.title, prompt: "What needs doing?")
                     if reminder.isNotification {
-                        TextField("Notification message", text: $reminder.message, axis: .vertical)
+                        HippoField("Notification message", text: $reminder.message)
                     } else {
                         Picker("List", selection: $selectedListID) {
                             Text("Choose a list…").tag("")
@@ -1067,7 +1074,7 @@ struct ReminderEditor: View {
                 }
                 if reminder.isNotification {
                     Section {
-                        TextField("Shortcut name (optional)", text: Binding(get: { reminder.shortcutName ?? "" }, set: { reminder.shortcutName = $0 }))
+                        HippoField("Shortcut name (optional)", text: Binding(get: { reminder.shortcutName ?? "" }, set: { reminder.shortcutName = $0 }), prompt: "Name from the Shortcuts app")
                             .autocorrectionDisabled()
                         #if os(iOS)
                         if let url = reminder.shortcutURL {
@@ -1146,7 +1153,7 @@ struct ReminderEditor: View {
                     Section { Button("Mark done", systemImage: "checkmark.circle") { Task { await store.complete(reminder); dismiss() } } }
                 }
                 TaskNoteSection(reminder: $reminder)
-            }.formStyle(.grouped)
+            }.hippoForm()
             .navigationTitle(reminder.isNotification ? "Notification details" : "Task details")
             .onAppear { if reminder.isUnscheduled { reminder.frequency = .anytime } }
             .task { if !reminder.isNotification { await loadLists() } }
@@ -1200,27 +1207,25 @@ struct MealsView: View {
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(spacing: 20) {
-                    GroupBox {
-                        HStack {
-                            Button { moveWeek(-1) } label: {
-                                Label("Previous week", systemImage: "chevron.left")
-                                    .frame(minWidth: 44, minHeight: 44)
-                            }
-                            Spacer()
-                            Text("Week of \(week.formatted(date: .abbreviated, time: .omitted))")
-                            Spacer()
-                            Button { moveWeek(1) } label: {
-                                Label("Next week", systemImage: "chevron.right")
-                                    .frame(minWidth: 44, minHeight: 44)
-                            }
+                VStack(spacing: 12) {
+                    HStack {
+                        Button { moveWeek(-1) } label: {
+                            Label("Previous week", systemImage: "chevron.left")
+                                .frame(minWidth: 44, minHeight: 44)
                         }
-                        .buttonStyle(.borderless)
-                        #if os(iOS)
-                        .labelStyle(.iconOnly)
-                        #endif
+                        Spacer()
+                        Text("Week of \(week.formatted(date: .abbreviated, time: .omitted))")
+                        Spacer()
+                        Button { moveWeek(1) } label: {
+                            Label("Next week", systemImage: "chevron.right")
+                                .frame(minWidth: 44, minHeight: 44)
+                        }
                     }
-                    GroupBox("Dinner · drag a day onto another to swap") {
+                    .buttonStyle(.borderless)
+                    #if os(iOS)
+                    .labelStyle(.iconOnly)
+                    #endif
+                    GroupBox("Dinner") {
                         VStack(spacing: 0) {
                             ForEach(0..<7, id: \.self) { day in
                                 HStack {
@@ -1241,10 +1246,14 @@ struct MealsView: View {
                                             return provider
                                         }
                                     Text(Calendar.current.date(byAdding: .day, value: day, to: week)!.formatted(.dateTime.weekday(.abbreviated))).frame(width: 45)
-                                    TextField("What's for dinner?", text: $dinners[day])
+                                    TextField("Add dinner…", text: $dinners[day])
+                                        .textFieldStyle(.plain)
+                                        .padding(10).frame(minHeight: 44)
+                                        .background(.background, in: RoundedRectangle(cornerRadius: 8))
+                                        .overlay { RoundedRectangle(cornerRadius: 8).strokeBorder(Color.secondary.opacity(0.4)) }
+                                        .accessibilityLabel("Dinner for " + Calendar.current.date(byAdding: .day, value: day, to: week)!.formatted(date: .complete, time: .omitted))
                                 }
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 4)
+                                .padding(.vertical, 3)
                                 .background(targetedDay == day ? Color.accentColor.opacity(0.15) : Color.clear)
                                 .clipShape(RoundedRectangle(cornerRadius: 8))
                                 .contentShape(Rectangle())
@@ -1271,8 +1280,10 @@ struct MealsView: View {
                     }
                     GroupBox("Grocery list") { GroceryView() }
                 }
-                .padding()
-            }.navigationTitle("Meals")
+                .padding(12)
+                .frame(maxWidth: 1000)
+                .frame(maxWidth: .infinity)
+            }.navigationTitle("Meals").hippoInlineTitle()
             .onAppear {
                 do { try cloud.migrateMealDates(); dinners = currentDinners }
                 catch { cloud.report(error) }
@@ -1332,7 +1343,7 @@ struct ReminderImportSheet: View {
                     }
                     Text("Only the selected list is copied when you choose one. Existing imports are skipped. Completed one-off tasks are skipped. Undated tasks remain flexible, without an invented deadline.").font(.caption).foregroundStyle(.secondary)
                 }
-            }.formStyle(.grouped)
+            }.hippoForm()
             .navigationTitle("Import Reminders")
             .task {
                 owner = Reminder.Owner(rawValue: activePerson) ?? .me

@@ -28,6 +28,18 @@ checks = r'''
             do { _ = try InventoryCSV(invalid); preconditionFailure("Accepted invalid CSV: \(invalid)") }
             catch is InventoryCSV.ImportError {}
         }
+        var collection = InventoryCollection(name: "Records", fields: ["Catalog", "Title", "Artist"])
+        let record = InventoryRecord(collectionID: collection.id, values: ["0012", "A record", "Artist"])
+        precondition(collection.title(for: record) == "0012")
+        collection.titleFieldIndex = 1
+        precondition(collection.title(for: record) == "A record")
+        collection.titleFieldIndex = -1
+        precondition(collection.title(for: record) == nil && collection.effectiveTitleFieldIndex == nil)
+        collection.titleFieldIndex = 2
+        var blankTitle = record; blankTitle.values[2] = ""
+        precondition(collection.title(for: blankTitle) == "Untitled record")
+        let legacy = try JSONDecoder().decode(InventoryCollection.self, from: Data("{\"id\":\"00000000-0000-0000-0000-000000000001\",\"name\":\"Records\",\"fields\":[\"Catalog\",\"Title\"]}".utf8))
+        precondition(legacy.titleFieldIndex == nil && legacy.title(for: record) == "0012")
         print("Inventory CSV checks passed: BOM, CRLF, multiline fields, escaped quotes, leading zeros, semicolon/tab separators, short rows, header-only files, and invalid input rejection.")
     }
 }

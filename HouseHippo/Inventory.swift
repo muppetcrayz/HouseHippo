@@ -11,13 +11,9 @@ struct InventoryView: View {
     var body: some View {
         NavigationStack {
             List {
-                Section {
-                    Button("Import CSV", systemImage: "square.and.arrow.down") { importing = true }
-                    Button("New collection", systemImage: "plus") { creating = true }
-                    Text("Export a table from Numbers as CSV. The first row becomes the fields; each following row becomes a record. Each collection can have different fields.")
-                        .font(.caption).foregroundStyle(.secondary)
+                if collections.isEmpty {
+                    HippoEmptyState(title: "A place for your collections", icon: "archivebox", message: "Create a collection or import a CSV. Column headings become fields, and every row becomes a record.")
                 }
-                if collections.isEmpty { Text("Add a collection for records, stuffed animals, or anything else you keep track of.").foregroundStyle(.secondary) }
                 ForEach(collections) { collection in
                     NavigationLink { InventoryCollectionView(collection: collection) } label: {
                         VStack(alignment: .leading, spacing: 4) {
@@ -27,7 +23,16 @@ struct InventoryView: View {
                     }
                 }
             }
+            .hippoPage()
             .navigationTitle("Inventory")
+            .toolbar {
+                ToolbarItem(placement: .primaryAction) {
+                    Menu {
+                        Button("Import CSV", systemImage: "square.and.arrow.down") { importing = true }
+                        Button("New collection", systemImage: "plus") { creating = true }
+                    } label: { Label("Add collection", systemImage: "plus") }
+                }
+            }
             .task { reload() }
             .onChange(of: cloud.revision) { _, _ in reload() }
             .fileImporter(isPresented: $importing, allowedContentTypes: [.commaSeparatedText, .tabSeparatedText, .plainText]) { result in
@@ -69,7 +74,7 @@ private struct InventoryImportEditor: View {
         NavigationStack {
             Form {
                 Section {
-                    TextField("Collection name", text: $draft.name)
+                    HippoField("Collection name", text: $draft.name, prompt: "e.g. Records")
                     Text("\(draft.csv.rows.count) records · \(draft.csv.fields.count) fields")
                     Text("Values are kept as text, preserving dates, catalog numbers, and leading zeros.").font(.caption).foregroundStyle(.secondary)
                 }
@@ -83,7 +88,7 @@ private struct InventoryImportEditor: View {
                         }
                     }
                 }
-            }.formStyle(.grouped).navigationTitle("Import collection")
+            }.hippoForm().navigationTitle("Import collection")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
@@ -111,9 +116,9 @@ private struct InventoryNewCollectionEditor: View {
     var body: some View {
         NavigationStack {
             Form {
-                TextField("Collection name", text: $name)
-                Section("Fields · one name per line") { TextEditor(text: $fields).frame(minHeight: 160).accessibilityLabel("Field names") }
-            }.formStyle(.grouped).navigationTitle("New collection")
+                HippoField("Collection name", text: $name, prompt: "e.g. Stuffed animals")
+                Section("Fields · one name per line") { HippoTextArea(label: "Field names", text: $fields, height: 130) }
+            }.hippoForm().navigationTitle("New collection")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
@@ -150,33 +155,47 @@ private struct InventoryCollectionView: View {
     var body: some View {
         List {
             Section {
-                Button("Add record", systemImage: "plus") {
-                    editing = InventoryRecord(collectionID: collection.id, values: Array(repeating: "", count: collection.fields.count))
+                Picker("Main title", selection: Binding(get: { collection.titleFieldIndex ?? 0 }, set: setTitleField)) {
+                    Text("None").tag(-1)
+                    ForEach(collection.fields.indices, id: \.self) { index in Text(collection.fields[index]).tag(index) }
                 }
-                Text("\(records.count) records").font(.caption).foregroundStyle(.secondary)
             }
             if records.isEmpty { Text("No records yet. Add your first one using this collection’s fields.").foregroundStyle(.secondary) }
             else if filtered.isEmpty { Text("No matching records.").foregroundStyle(.secondary) }
-            ForEach(filtered) { record in
-                Button { editing = record } label: {
-                    VStack(alignment: .leading, spacing: 5) {
-                        Text(record.displayTitle).foregroundStyle(.primary)
-                        ForEach(collection.fields.indices, id: \.self) { index in
-                            if index < record.values.count && !record.values[index].isEmpty {
-                                Text("\(collection.fields[index]): \(record.values[index])").font(.caption).foregroundStyle(.secondary).lineLimit(2)
+            Section("\(filtered.count) of \(records.count) records") {
+                ForEach(filtered) { record in
+                    Button { editing = record } label: {
+                        VStack(alignment: .leading, spacing: 5) {
+                            if let title = collection.title(for: record) {
+                                Text(title).font(.headline).foregroundStyle(.primary)
                             }
-                        }
-                    }.padding(.vertical, 4).frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
-                }.buttonStyle(.plain)
+                            let details = collection.fields.indices.filter { $0 != collection.effectiveTitleFieldIndex && $0 < record.values.count && !record.values[$0].isEmpty }
+                            ForEach(Array(details.prefix(3)), id: \.self) { index in
+                                Text("\(collection.fields[index]): \(record.values[index])").font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                            }
+                            if details.count > 3 {
+                                Text("+\(details.count - 3) more fields").font(.caption).foregroundStyle(.teal)
+                            }
+                        }.padding(.vertical, 4).frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
+                    }.buttonStyle(.plain)
+                }
             }
         }
+        .hippoPage()
         .navigationTitle(collection.name)
         .searchable(text: $search, prompt: "Search all fields")
         .toolbar {
-            Menu {
-                Button("Rename collection") { name = collection.name; renaming = true }
-                Button("Delete collection", role: .destructive) { confirmingDelete = true }
-            } label: { Label("Collection options", systemImage: "ellipsis.circle") }
+            ToolbarItem(placement: .primaryAction) {
+                Button("Add record", systemImage: "plus") {
+                    editing = InventoryRecord(collectionID: collection.id, values: Array(repeating: "", count: collection.fields.count))
+                }
+            }
+            ToolbarItem(placement: .automatic) {
+                Menu {
+                    Button("Rename collection") { name = collection.name; renaming = true }
+                    Button("Delete collection", role: .destructive) { confirmingDelete = true }
+                } label: { Label("Collection options", systemImage: "ellipsis.circle") }
+            }
         }
         .task { reload() }
         .onChange(of: cloud.revision) { _, _ in reload() }
@@ -201,6 +220,12 @@ private struct InventoryCollectionView: View {
             Button("OK") { issue = nil }
         } message: { Text(issue ?? "") }
     }
+    private func setTitleField(_ index: Int) {
+        var changed = collection
+        changed.titleFieldIndex = index
+        do { try cloud.saveInventoryCollection(changed); collection = changed; reload() }
+        catch { issue = error.localizedDescription }
+    }
     private func reload() {
         do {
             guard let current = try cloud.inventoryCollections().first(where: { $0.id == collection.id }) else { dismiss(); return }
@@ -222,11 +247,11 @@ private struct InventoryRecordEditor: View {
             Form {
                 Section(collection.name) {
                     ForEach(collection.fields.indices, id: \.self) { index in
-                        TextField(collection.fields[index], text: $record.values[index], axis: .vertical)
+                        HippoField(collection.fields[index], text: $record.values[index], multiline: true)
                     }
                 }
                 if !isNew { Section { Button("Delete record", role: .destructive) { confirmingDelete = true } } }
-            }.formStyle(.grouped).navigationTitle(isNew ? "Add record" : "Edit record")
+            }.hippoForm().navigationTitle(isNew ? "Add record" : "Edit record")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {

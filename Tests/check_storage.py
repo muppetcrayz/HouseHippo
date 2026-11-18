@@ -169,6 +169,23 @@ checks = r'''
         var deletedInventoryRow = newRecord; deletedInventoryRow.deletedAt = Date()
         try inventoryReload.saveInventoryRecord(deletedInventoryRow)
         do { try inventoryReload.saveInventoryRecord(newRecord); preconditionFailure("Resurrected inventory record") } catch {}
+        // Display titles are a collection preference, never a schema or row rewrite.
+        var titledCollection = recordCollection; titledCollection.titleFieldIndex = 1
+        try inventoryReload.saveInventoryCollection(titledCollection)
+        let titleReload = CloudStore(directory: base, cloudEnabled: false, defaults: defaults, legacyDefaults: nil)
+        let titledCollections = try titleReload.inventoryCollections()
+        precondition(titledCollections.first { $0.id == recordCollection.id }?.titleFieldIndex == 1)
+        let titleSortedRows = try titleReload.inventoryRecords(for: recordCollection.id)
+        precondition(titleSortedRows.count == 2 && titleSortedRows.contains(inventoryRows[0]))
+        titledCollection.titleFieldIndex = -1
+        try titleReload.saveInventoryCollection(titledCollection)
+        let noTitleCollections = try titleReload.inventoryCollections()
+        let savedNoTitle = noTitleCollections.first { $0.id == recordCollection.id }!
+        precondition(savedNoTitle.titleFieldIndex == -1 && savedNoTitle.title(for: inventoryRows[0]) == nil)
+        let unchangedRows = try titleReload.inventoryRecords(for: recordCollection.id)
+        precondition(Set(unchangedRows.map(\.id)) == Set(titleSortedRows.map(\.id)))
+        var invalidTitle = titledCollection; invalidTitle.titleFieldIndex = 99
+        do { try titleReload.saveInventoryCollection(invalidTitle); preconditionFailure("Saved invalid title field") } catch {}
         var changedSchema = recordCollection; changedSchema.fields.append("Extra")
         do { try inventoryReload.saveInventoryCollection(changedSchema); preconditionFailure("Changed schema without migrating rows") } catch {}
         let inventoryBackup = try JSONDecoder().decode(CloudStore.Backup.self, from: inventoryReload.exportBackup())

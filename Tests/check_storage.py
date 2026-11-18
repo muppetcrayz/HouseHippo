@@ -10,7 +10,7 @@ model += "\n" + (root / "HouseHippo/InventoryModel.swift").read_text()
 store = (root / 'HouseHippo/CloudStore.swift').read_text()
 checks = r'''
 @main struct StorageChecks {
-    @MainActor static func main() throws {
+    @MainActor static func main() async throws {
         let schemaError = NSError(domain: CKErrorDomain, code: CKError.invalidArguments.rawValue,
             userInfo: [NSLocalizedDescriptionKey: "Invalid Arguments", "ServerErrorDescription": "Cannot create new type cloudkit.share in production schema"])
         let partialError = NSError(domain: CKErrorDomain, code: CKError.partialFailure.rawValue,
@@ -31,6 +31,92 @@ checks = r'''
         defaults.set("My notes", forKey: "househippo.notes")
         let db = CloudStore(directory: base, cloudEnabled: false, defaults: defaults, legacyDefaults: nil)
         precondition(db.loadError == nil)
+        var charge = MoneyEntry(person: "Friend", title: "Groceries", day: "2026-05-09", cents: 2430)
+        let repayment = MoneyEntry(person: "Friend", title: "Repayment", day: "2026-05-10", cents: -1000)
+        try db.saveMoneyEntry(charge)
+        try db.saveMoneyEntry(repayment)
+        let moneyReload = CloudStore(directory: base, cloudEnabled: false, defaults: defaults, legacyDefaults: nil)
+        let savedMoney = try moneyReload.moneyEntries()
+        precondition(savedMoney.count == 2 && MoneyEntry.balance(savedMoney) == 1430)
+        charge.cents = 2530
+        try db.saveMoneyEntry(charge)
+        let updatedMoney = try db.moneyEntries()
+        precondition(MoneyEntry.balance(updatedMoney) == 1530)
+        charge.deletedAt = Date()
+        try db.saveMoneyEntry(charge)
+        let remainingMoney = try db.moneyEntries()
+        precondition(remainingMoney == [repayment])
+        var recurring = RecurringBill(title: "Insurance", cents: 8000, day: "2026-11-27")
+        recurring.sourceUID = "calendar-insurance"
+        try db.saveRecurringBill(recurring)
+        try db.savePaydayAnchor("2026-11-27")
+        let recurringReload = CloudStore(directory: base, cloudEnabled: false, defaults: defaults, legacyDefaults: nil)
+        let reopenedBills = try recurringReload.recurringBills()
+        let reopenedAnchor = try recurringReload.paydayAnchor()
+        precondition(reopenedBills == [recurring] && reopenedAnchor == "2026-11-27")
+        recurring.deletedAt = Date()
+        try db.saveRecurringBill(recurring)
+        let activeBills = try db.recurringBills()
+        let allBills = try db.recurringBills(includeDeleted: true)
+        precondition(activeBills.isEmpty && allBills.first?.sourceUID == "calendar-insurance")
+        do { try db.saveRecurringBill(recurring); preconditionFailure("Resurrected recurring bill") } catch {}
+        var expiredBill = RecurringBill(title: "Expired import", cents: 100, day: "2020-01-01")
+        expiredBill.sourceUID = "expired-calendar-series"; expiredBill.until = "2026-10-31"
+        try db.saveRecurringBill(expiredBill)
+        let visibleRecurring = try db.recurringBills()
+        let archivedRecurring = try db.recurringBills(includeDeleted: true)
+        precondition(!visibleRecurring.contains { $0.id == expiredBill.id })
+        precondition(archivedRecurring.contains { $0.id == expiredBill.id && $0.deletedAt == nil })
+        let bulkBills = (0..<250).map { index -> RecurringBill in
+            var bill = RecurringBill(title: "Bulk \(index)", cents: 1000 + index, day: "2020-01-01")
+            bill.sourceUID = "bulk-calendar-\(index)"
+            return bill
+        }
+        let beforeBulkRevision = db.revision
+        let importedCount = try await db.importRecurringBills(bulkBills)
+        precondition(importedCount == 250 && db.revision == beforeBulkRevision + 1)
+        let duplicatedCount = try await db.importRecurringBills(bulkBills)
+        precondition(duplicatedCount == 0 && db.revision == beforeBulkRevision + 1)
+        let bulkReopen = CloudStore(directory: base, cloudEnabled: false, defaults: defaults, legacyDefaults: nil)
+        let bulkSaved = try bulkReopen.recurringBills()
+        precondition(bulkSaved.filter { $0.sourceUID?.hasPrefix("bulk-calendar-") == true }.count == 250)
+        var rollbackFirst = RecurringBill(title: "Rollback", cents: 100, day: "2026-11-01")
+        rollbackFirst.sourceUID = "rollback-bill"
+        let invalidImport = RecurringBill(title: "Invalid", cents: 0, day: "2026-11-01")
+        do { _ = try await db.importRecurringBills([rollbackFirst, invalidImport]); preconditionFailure("Invalid batch saved") } catch {}
+        let afterRollback = try db.recurringBills(includeDeleted: true)
+        precondition(!afterRollback.contains { $0.sourceUID == "rollback-bill" })
+        print("Background bill import checks passed: atomic batch, one revision, duplicate protection, rollback and durable reopen.")
+        var periodBudget = PayPeriodBudget(startDay: "2026-11-27", paychecks: [BudgetPaycheck(name: "Dan", actualAmount: "1000.25")])
+        periodBudget.notes = "Saved for this period"
+        periodBudget.carryoverCents = 1234
+        try db.savePayPeriodBudget(periodBudget)
+        let budgetReload = CloudStore(directory: base, cloudEnabled: false, defaults: defaults, legacyDefaults: nil)
+        let savedBudget = try budgetReload.payPeriodBudget(startDay: "2026-11-27")
+        let noBudget = try budgetReload.payPeriodBudget(startDay: "2026-12-11")
+        precondition(savedBudget == periodBudget && noBudget == nil)
+        var nextBudget = PayPeriodBudget(startDay: "2026-12-11")
+        nextBudget.investmentCents = 0
+        try db.savePayPeriodBudget(nextBudget)
+        let originalBudget = try db.payPeriodBudget(startDay: "2026-11-27")
+        let savedNextBudget = try db.payPeriodBudget(startDay: "2026-12-11")
+        precondition(originalBudget == periodBudget && savedNextBudget == nextBudget)
+        var tuition = PaymentDue(title: "Tuition", cents: 12345, day: "2026-12-01")
+        tuition.notes = "One-off payment"
+        try db.savePaymentDue(tuition)
+        let paymentReload = CloudStore(directory: base, cloudEnabled: false, defaults: defaults, legacyDefaults: nil)
+        let reopenedPayments = try paymentReload.paymentsDue()
+        precondition(reopenedPayments == [tuition])
+        tuition.paidAt = Date()
+        try db.savePaymentDue(tuition)
+        let paidPayments = try db.paymentsDue()
+        precondition(paidPayments.first?.paidAt != nil)
+        tuition.deletedAt = Date()
+        try db.savePaymentDue(tuition)
+        let remainingPayments = try db.paymentsDue()
+        precondition(remainingPayments.isEmpty)
+        do { try db.savePaymentDue(tuition); preconditionFailure("Resurrected payment") } catch {}
+        do { try db.saveMoneyEntry(charge); preconditionFailure("Resurrected money entry") } catch {}
         precondition(try db.tasks().count == 1)
         precondition(try db.read("househippo.notes") == Data("My notes".utf8))
         original.title = "Changed offline"

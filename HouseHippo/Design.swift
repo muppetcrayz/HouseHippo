@@ -14,7 +14,8 @@ struct HippoField: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(label).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-            TextField(prompt, text: $text, axis: multiline ? .vertical : .horizontal)
+            TextField("", text: $text, prompt: Text(prompt), axis: multiline ? .vertical : .horizontal)
+                .labelsHidden()
                 .textFieldStyle(.plain).lineLimit(1...5)
                 .padding(.horizontal, 11).padding(.vertical, 10)
                 .frame(minHeight: 44)
@@ -264,6 +265,19 @@ extension View {
         navigationTitle(title)
         #if os(iOS)
             .navigationBarTitleDisplayMode(.large)
+        #endif
+    }
+}
+
+
+extension View {
+    /// Mac sheets need an explicit usable canvas; iPhone sheets follow the system width.
+    @ViewBuilder func hippoFinanceSheet(width: CGFloat, height: CGFloat) -> some View {
+        #if os(macOS)
+        self.frame(minWidth: width, idealWidth: width, maxWidth: width + 120,
+                   minHeight: 480, idealHeight: height, maxHeight: height + 100)
+        #else
+        self
         #endif
     }
 }

@@ -311,6 +311,299 @@ struct BorrowedItem: Identifiable, Codable, Equatable {
     var deletedAt: Date?
 }
 
+/// Money is stored in cents; positive means the other person owes me.
+struct MoneyEntry: Identifiable, Codable, Equatable {
+    var id = UUID()
+    var person: String
+    var title: String
+    var day: String
+    var cents: Int
+    var deletedAt: Date?
+
+    static func amount(_ text: String) -> Int? {
+        let value = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let match = value.range(of: #"^[+-]?[0-9]+(?:\.[0-9]{1,2})?$"#, options: .regularExpression), match == value.startIndex..<value.endIndex,
+              let decimal = Decimal(string: value, locale: Locale(identifier: "en_US_POSIX")),
+              abs(decimal) <= 1_000_000_000 else { return nil }
+        return NSDecimalNumber(decimal: decimal * 100).intValue
+    }
+    static func money(_ cents: Int, signed: Bool = false) -> String {
+        (cents < 0 ? "-" : signed ? "+" : "") + String(format: "$%lld.%02lld", Int64(abs(cents) / 100), Int64(abs(cents) % 100))
+    }
+    static func dayString(_ date: Date) -> String {
+        let formatter = DateFormatter(); formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.locale = Locale(identifier: "en_US_POSIX"); formatter.dateFormat = "yyyy-MM-dd"
+        return formatter.string(from: date)
+    }
+    var date: Date {
+        let formatter = DateFormatter(); formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.locale = Locale(identifier: "en_US_POSIX"); formatter.dateFormat = "yyyy-MM-dd"
+        return formatter.date(from: day) ?? Date()
+    }
+    static func ordered(_ entries: [MoneyEntry]) -> [MoneyEntry] {
+        entries.sorted { $0.day == $1.day ? $0.id.uuidString < $1.id.uuidString : $0.day < $1.day }
+    }
+    static func balance(_ entries: [MoneyEntry]) -> Int { entries.reduce(0) { $0 + $1.cents } }
+    static func paymentCents(_ amount: Int, balance: Int) -> Int? {
+        guard amount > 0, amount <= abs(balance) else { return nil }
+        return balance > 0 ? -amount : amount
+    }
+    static func summary(person: String, entries: [MoneyEntry]) -> String {
+        let total = balance(entries)
+        let heading = total > 0 ? "You owe me \(money(total))." : total < 0 ? "I owe you \(money(-total))." : "We’re settled up."
+        return "\(person) — \(heading)\n+ = you owe me; − = I owe you\n\n" + ordered(entries).map {
+            "\($0.day) - \($0.title) - \(money($0.cents, signed: true))"
+        }.joined(separator: "\n") + "\n\nNet total: \(money(total, signed: true))"
+    }
+    enum ImportError: LocalizedError {
+        case line(Int)
+        var errorDescription: String? {
+            switch self { case .line(let number): return "Check line \(number). Use M/D - Description - +12.34 (or -12.34)." }
+        }
+    }
+    static func parse(_ text: String, person: String, year: Int) throws -> [MoneyEntry] {
+        var entries: [MoneyEntry] = []
+        let regex = try NSRegularExpression(pattern: #"^(\d{1,2})/(\d{1,2})\s+-\s+(.+?)\s+-\s+([+-]?[0-9]+(?:\.[0-9]{1,2})?)$"#)
+        let calendar = Calendar(identifier: .gregorian)
+        for (index, raw) in text.components(separatedBy: .newlines).enumerated() {
+            let line = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            if line.isEmpty { continue }
+            // A standalone total in a pasted list is informational, never another charge.
+            if amount(line) != nil { continue }
+            let ns = line as NSString
+            guard let match = regex.firstMatch(in: line, range: NSRange(location: 0, length: ns.length)),
+                  let month = Int(ns.substring(with: match.range(at: 1))),
+                  let day = Int(ns.substring(with: match.range(at: 2))),
+                  let cents = amount(ns.substring(with: match.range(at: 4))), cents != 0,
+                  let date = calendar.date(from: DateComponents(year: year, month: month, day: day)),
+                  calendar.component(.month, from: date) == month, calendar.component(.day, from: date) == day else { throw ImportError.line(index + 1) }
+            entries.append(MoneyEntry(person: person, title: ns.substring(with: match.range(at: 3)), day: dayString(date), cents: cents))
+        }
+        guard !entries.isEmpty else { throw ImportError.line(1) }
+        return entries
+    }
+}
+
+struct PaymentDue: Identifiable, Codable, Equatable {
+    var id = UUID()
+    var title: String
+    var cents: Int
+    var day: String
+    var notes = ""
+    var paidAt: Date?
+    var deletedAt: Date?
+    var date: Date { MoneyEntry(person: "", title: "", day: day, cents: 0).date }
+    enum DueGroup: String, CaseIterable {
+        case overdue = "Overdue", today = "Due today", soon = "Next 7 days", later = "Later", paid = "Paid"
+    }
+    func group(today: Date = Date(), calendar: Calendar = Calendar(identifier: .gregorian)) -> DueGroup {
+        if paidAt != nil { return .paid }
+        let days = calendar.dateComponents([.day], from: calendar.startOfDay(for: today), to: calendar.startOfDay(for: date)).day ?? 0
+        if days < 0 { return .overdue }
+        if days == 0 { return .today }
+        return days <= 7 ? .soon : .later
+    }
+}
+
+struct RecurringBill: Identifiable, Codable, Equatable, Sendable {
+    var id = UUID()
+    var title: String
+    var cents: Int
+    var day: String
+    var yearly = false
+    var interval = 1
+    var count: Int?
+    var until: String?
+    var excluded: [String] = []
+    var sourceUID: String?
+    var notes = ""
+    var deletedAt: Date?
+    var date: Date { MoneyEntry(person: "", title: "", day: day, cents: 0).date }
+    func occurrences(from start: Date, to end: Date, calendar: Calendar = Calendar(identifier: .gregorian)) -> [Date] {
+        let anchor = calendar.startOfDay(for: date)
+        guard anchor < end, start < end else { return [] }
+        let limit = until.map { MoneyEntry(person: "", title: "", day: $0, cents: 0).date }
+        if let limit, limit < start { return [] }
+        let targetDay = calendar.component(.day, from: anchor)
+        let firstMonth = calendar.dateInterval(of: .month, for: anchor)!.start
+        let months = max(0, calendar.dateComponents([.month], from: firstMonth, to: end).month ?? 0)
+        let step = max(1, interval) * (yearly ? 12 : 1)
+        let startMonth = calendar.dateInterval(of: .month, for: start)!.start
+        let elapsed = max(0, calendar.dateComponents([.month], from: firstMonth, to: startMonth).month ?? 0)
+        // COUNT needs the historical occurrence count; unlimited series jump to the requested month.
+        let firstOffset = count == nil ? (elapsed / step) * step : 0
+        var dates: [Date] = []; var occurrence = 0
+        for offset in stride(from: firstOffset, through: months, by: step) {
+            guard let month = calendar.date(byAdding: .month, value: offset, to: firstMonth),
+                  let range = calendar.range(of: .day, in: .month, for: month), range.contains(targetDay),
+                  let candidate = calendar.date(byAdding: .day, value: targetDay - 1, to: month) else { continue }
+            occurrence += 1
+            if let count, occurrence > count { break }
+            if let limit, candidate > limit { break }
+            // Format only occurrences inside the requested range, never the full history.
+            if candidate >= start && candidate < end && (excluded.isEmpty || !excluded.contains(MoneyEntry.dayString(candidate))) { dates.append(candidate) }
+        }
+        return dates
+    }
+    // The requested budget year is fixed, so old imports stay archived as time passes.
+    static var budgetYearStart: Date { MoneyEntry(person: "", title: "", day: "2026-11-01", cents: 0).date }
+    static var budgetYearEnd: Date { MoneyEntry(person: "", title: "", day: "2027-11-01", cents: 0).date }
+    var isActiveInBudgetYear: Bool {
+        !occurrences(from: Self.budgetYearStart, to: Self.budgetYearEnd).isEmpty
+    }
+    static func periodStart(containing date: Date, anchor: Date, calendar: Calendar = Calendar(identifier: .gregorian)) -> Date {
+        let first = calendar.startOfDay(for: anchor)
+        let days = calendar.dateComponents([.day], from: first, to: calendar.startOfDay(for: date)).day ?? 0
+        return calendar.date(byAdding: .day, value: Int(floor(Double(days) / 14)) * 14, to: first)!
+    }
+}
+
+/// A deliberately bounded importer: unsupported rules are reported rather than approximated.
+enum BillCalendarImport {
+    struct Preview: Sendable { var bills: [RecurringBill]; var warnings: [String]; var inactiveCount = 0 }
+    static func load(_ url: URL) async throws -> Preview {
+        let worker = Task.detached(priority: .userInitiated) {
+            let access = url.startAccessingSecurityScopedResource()
+            defer { if access { url.stopAccessingSecurityScopedResource() } }
+            let size = try url.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
+            guard size <= 25_000_000 else {
+                throw NSError(domain: "HouseHippo.Bills", code: 2, userInfo: [NSLocalizedDescriptionKey: "This calendar is too large. Export just the bills calendar (up to 25 MB)."])
+            }
+            try Task.checkCancellation()
+            return try parse(String(contentsOf: url, encoding: .utf8))
+        }
+        return try await withTaskCancellationHandler(operation: { try await worker.value }, onCancel: { worker.cancel() })
+    }
+    static func parse(_ text: String) throws -> Preview {
+        func invalid(_ text: String) -> NSError { NSError(domain: "HouseHippo.Bills", code: 1, userInfo: [NSLocalizedDescriptionKey: text]) }
+        guard text.contains("BEGIN:VCALENDAR"), text.contains("END:VCALENDAR") else { throw invalid("Choose an exported .ics calendar file.") }
+        var lines: [String] = []
+        try Task.checkCancellation()
+        for line in text.replacingOccurrences(of: "\r\n", with: "\n").components(separatedBy: "\n") {
+            if (line.hasPrefix(" ") || line.hasPrefix("\t")), !lines.isEmpty { lines[lines.count - 1] += line.dropFirst() }
+            else { lines.append(line) }
+        }
+        func unescape(_ value: String) -> String {
+            value.replacingOccurrences(of: "\\n", with: "\n").replacingOccurrences(of: "\\N", with: "\n").replacingOccurrences(of: "\\,", with: ",").replacingOccurrences(of: "\\;", with: ";").replacingOccurrences(of: "\\\\", with: "\\")
+        }
+        func day(_ raw: String) -> String? {
+            let value = String(raw.prefix(8))
+            let f = DateFormatter(); f.locale = Locale(identifier: "en_US_POSIX"); f.calendar = Calendar(identifier: .gregorian); f.dateFormat = "yyyyMMdd"; f.isLenient = false
+            guard let date = f.date(from: value), f.string(from: date) == value else { return nil }
+            return MoneyEntry.dayString(date)
+        }
+        var events: [[String: [String]]] = []; var event: [String: [String]]?; var alarm = false
+        for line in lines {
+            if line == "BEGIN:VEVENT" { event = [:]; continue }
+            if line == "END:VEVENT" { if let event { events.append(event) }; event = nil; continue }
+            if line == "BEGIN:VALARM" { alarm = true; continue }
+            if line == "END:VALARM" { alarm = false; continue }
+            guard event != nil, !alarm, let colon = line.firstIndex(of: ":") else { continue }
+            let key = String(line[..<colon].split(separator: ";")[0])
+            event![key, default: []].append(String(line[line.index(after: colon)...]))
+        }
+        let changedUIDs = Set(events.filter { $0["RECURRENCE-ID"] != nil }.compactMap { $0["UID"]?.first })
+        var bills: [RecurringBill] = []; var warnings: [String] = []; var seen = Set<String>(); var inactiveCount = 0
+        for event in events {
+            try Task.checkCancellation()
+            let title = unescape(event["SUMMARY"]?.first ?? "Untitled bill")
+            do {
+                guard event["RECURRENCE-ID"] == nil else { continue }
+                guard event["STATUS"]?.first != "CANCELLED" else { continue }
+                guard let uid = event["UID"]?.first, !uid.isEmpty, seen.insert(uid).inserted else { throw invalid("Missing or duplicate calendar identity") }
+                guard !changedUIDs.contains(uid) else { throw invalid("Series has changed individual occurrences; review it manually") }
+                guard let raw = event["DTSTART"]?.first, let start = day(raw) else { throw invalid("Missing or invalid start date") }
+                guard let rules = event["RRULE"], rules.count == 1, event["RDATE"] == nil, event["EXRULE"] == nil else { throw invalid("Only monthly and yearly recurring bills are imported") }
+                var fields: [String: String] = [:]
+                for pair in rules[0].split(separator: ";") {
+                    let parts = pair.split(separator: "=", maxSplits: 1)
+                    guard parts.count == 2, fields[String(parts[0])] == nil else { throw invalid("Invalid repeat rule") }
+                    fields[String(parts[0])] = String(parts[1])
+                }
+                guard Set(fields.keys).isSubset(of: ["FREQ", "INTERVAL", "COUNT", "UNTIL", "BYMONTHDAY", "BYMONTH", "WKST"]),
+                      ["MONTHLY", "YEARLY"].contains(fields["FREQ"] ?? ""),
+                      let interval = Int(fields["INTERVAL"] ?? "1"), (1...120).contains(interval),
+                      fields["BYMONTHDAY"] == nil || Int(fields["BYMONTHDAY"]!) == Int(start.suffix(2)),
+                      fields["BYMONTH"] == nil || (fields["FREQ"] == "YEARLY" && Int(fields["BYMONTH"]!) == Int(start.dropFirst(5).prefix(2))) else { throw invalid("Unsupported repeat pattern; review it manually") }
+                var bill = RecurringBill(title: title, cents: 0, day: start, yearly: fields["FREQ"] == "YEARLY", interval: interval)
+                if let raw = fields["COUNT"] { guard let count = Int(raw), count > 0 else { throw invalid("Invalid repeat count") }; bill.count = count }
+                if let raw = fields["UNTIL"] { guard let end = day(raw) else { throw invalid("Invalid repeat end") }; bill.until = end }
+                guard bill.count == nil || bill.until == nil else { throw invalid("Rule has both count and end") }
+                for raw in event["EXDATE"] ?? [] {
+                    for value in raw.split(separator: ",") { guard let date = day(String(value)) else { throw invalid("Invalid excluded date") }; bill.excluded.append(date) }
+                }
+                bill.sourceUID = uid; bill.notes = unescape(event["DESCRIPTION"]?.first ?? "")
+                let regex = try NSRegularExpression(pattern: #"\$\s*([0-9]+(?:,[0-9]{3})*(?:\.[0-9]{1,2})?)(?![0-9.])"#)
+                let ns = (title + "\n" + bill.notes) as NSString
+                let matches = regex.matches(in: ns as String, range: NSRange(location: 0, length: ns.length))
+                if matches.count == 1 { bill.cents = MoneyEntry.amount(ns.substring(with: matches[0].range(at: 1)).replacingOccurrences(of: ",", with: "")) ?? 0 }
+                if bill.isActiveInBudgetYear { bills.append(bill) } else { inactiveCount += 1 }
+            } catch { warnings.append("\(title): \(error.localizedDescription)") }
+        }
+        return Preview(bills: bills, warnings: warnings, inactiveCount: inactiveCount)
+    }
+}
+
+struct BudgetPaycheck: Identifiable, Codable, Equatable {
+    var id = UUID()
+    var name = ""
+    var useActualAmount = true
+    var actualAmount = ""
+    var hours = ""
+    var hourlyRate = ""
+    var takeHomePercent = "100"
+
+    static func number(_ text: String, maximum: Decimal, places: Int = 6) -> Decimal? {
+        let text = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard text.range(of: "^[0-9]+(?:\\.[0-9]{1,\(places)})?$", options: .regularExpression) != nil,
+              let value = Decimal(string: text, locale: Locale(identifier: "en_US_POSIX")), value >= 0, value <= maximum else { return nil }
+        return value
+    }
+    var netAmount: Decimal? {
+        if useActualAmount {
+            guard let cents = MoneyEntry.amount(actualAmount), cents >= 0 else { return nil }
+            return Decimal(cents) / 100
+        }
+        guard let hours = Self.number(hours, maximum: 10000, places: 4),
+              let rate = Self.number(hourlyRate, maximum: 1_000_000, places: 2),
+              let percent = Self.number(takeHomePercent, maximum: 100) else { return nil }
+        return hours * rate * percent / 100
+    }
+    var isValid: Bool { !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && netAmount != nil }
+    static func roundedCents(_ value: Decimal) -> Int {
+        var cents = value * 100; var rounded = Decimal()
+        NSDecimalRound(&rounded, &cents, 0, .plain)
+        return NSDecimalNumber(decimal: rounded).intValue
+    }
+    static func estimate(for person: String) -> BudgetPaycheck {
+        // Editable starting assumptions from the supplied Numbers paycheck calculator.
+        BudgetPaycheck(name: person, useActualAmount: false, hourlyRate: person == "Dan" ? "46.88" : "50.98", takeHomePercent: person == "Dan" ? "89.574445" : "82.402603")
+    }
+}
+
+struct PayPeriodBudget: Identifiable, Codable, Equatable {
+    var id: String { startDay }
+    var startDay: String
+    var paychecks: [BudgetPaycheck] = []
+    var additionalDebtCents = 0
+    var investmentCents = 2500
+    var savingsCents = 0
+    var carryoverCents = 0
+    var includePriorCarryover = true
+    var notes = ""
+    var incomeCents: Int? {
+        guard !paychecks.isEmpty, paychecks.allSatisfy(\.isValid) else { return nil }
+        // Numbers sums unrounded estimates, then formats the total to cents.
+        return BudgetPaycheck.roundedCents(paychecks.reduce(Decimal(0)) { $0 + $1.netAmount! })
+    }
+    func totalIncomeCents(priorCarryoverCents: Int) -> Int? {
+        incomeCents.map { $0 + (includePriorCarryover ? priorCarryoverCents : 0) }
+    }
+    func freeSpendingCents(billsCents: Int, priorCarryoverCents: Int = 0) -> Int? {
+        totalIncomeCents(priorCarryoverCents: priorCarryoverCents).map { $0 - billsCents - additionalDebtCents - investmentCents - savingsCents - carryoverCents }
+    }
+}
+
 struct LastTimeEntry: Identifiable, Codable, Equatable {
     var id = UUID()
     var title: String
@@ -780,6 +1073,7 @@ struct HouseHippoHome: View {
                             Label("Borrowing & Lending", systemImage: "arrow.left.arrow.right").tag(7)
                             Label("Last Time", systemImage: "calendar.badge.clock").tag(8)
                             Label("Inventory", systemImage: "archivebox").tag(9)
+                            Label("Things To Pay", systemImage: "creditcard").tag(10)
                         }
                         Label("Meals", systemImage: "fork.knife").tag(5)
                     }.listStyle(.sidebar)
@@ -791,6 +1085,7 @@ struct HouseHippoHome: View {
                 case 7: NavigationStack { BorrowingLendingView() }
                 case 8: NavigationStack { LastTimeView() }
                 case 9: InventoryView()
+                case 10: NavigationStack { ThingsToPayView() }
                 case 2: HomeDashboard(navigate: { selectedTab = $0 }, showCompletedTasks: showCompletedTasks)
                 default: MealsView()
                 }
@@ -1340,11 +1635,18 @@ private struct MealsPage: View {
         let date = Calendar.current.date(byAdding: .day, value: day, to: week)!
         let isToday = Calendar.current.isDate(date, inSameDayAs: now)
         return VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .firstTextBaseline, spacing: 5) {
-                Text(date.formatted(.dateTime.weekday(.abbreviated)).uppercased()).font(.caption2.weight(.bold)).tracking(0.6)
-                Text(date.formatted(.dateTime.day())).font(.system(.title3, design: .rounded).bold())
+            HStack(alignment: .top, spacing: 5) {
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(alignment: .firstTextBaseline, spacing: 5) {
+                        Text(date.formatted(.dateTime.weekday(.abbreviated)).uppercased()).font(.caption2.weight(.bold)).tracking(0.6)
+                        Text(date.formatted(.dateTime.day())).font(.system(.title3, design: .rounded).bold())
+                    }.fixedSize(horizontal: true, vertical: false)
+                    // Reserve the same second line in every card so dinner fields stay aligned.
+                    Text("Tonight").font(.caption2.weight(.semibold))
+                        .fixedSize(horizontal: true, vertical: false)
+                        .opacity(isToday ? 1 : 0).accessibilityHidden(!isToday)
+                }
                 Spacer(minLength: 0)
-                if isToday { Text("Tonight").font(.caption2.weight(.semibold)) }
                 Image(systemName: "line.3.horizontal").font(.caption).foregroundStyle(.secondary)
                     .frame(width: 28, height: 28).contentShape(Rectangle())
                     .accessibilityLabel("Drag to swap dinner")

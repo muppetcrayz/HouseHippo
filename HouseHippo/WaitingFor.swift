@@ -1,4 +1,10 @@
 import SwiftUI
+import UniformTypeIdentifiers
+#if os(macOS)
+import AppKit
+#else
+import UIKit
+#endif
 
 struct WaitingForView: View {
     @ObservedObject private var cloud = CloudStore.shared
@@ -334,6 +340,7 @@ struct BorrowingLendingView: View {
                 Picker("Show", selection: $showReturned) { Text("Out now").tag(false); Text("Include returned").tag(true) }
                     .pickerStyle(.segmented).labelsHidden().fixedSize()
             }
+            MoneyLedgerSection()
             if items.isEmpty {
                 HippoEmptyState(title: "Keep track of who has what", icon: "arrow.left.arrow.right", message: "Add an item and a person. Check it off when it’s returned.")
                     .padding(.horizontal, 16).hippoCard()
@@ -660,6 +667,7 @@ struct LifeHubView: View {
     @State private var latestUpdates: [UUID: WaitingUpdate] = [:]
     @State private var borrowed: [BorrowedItem] = []
     @State private var markers: [LastTimeEntry] = []
+    @State private var payments: [PaymentDue] = []
     @State private var collections = 0
     @State private var records = 0
     @State private var issue: String?
@@ -679,6 +687,11 @@ struct LifeHubView: View {
                     NavigationLink { BorrowingLendingView() } label: {
                         tile("Borrowing & Lending", value: out.count, icon: "arrow.left.arrow.right", color: .orange,
                              caption: out.isEmpty ? "Nothing out" : "With \(Set(out.map(\.person)).count) " + (Set(out.map(\.person)).count == 1 ? "person" : "people"))
+                    }
+                    NavigationLink { ThingsToPayView() } label: {
+                        let unpaid = payments.filter { $0.paidAt == nil }
+                        tile("Things To Pay", value: unpaid.count, icon: "creditcard", color: .purple,
+                             caption: unpaid.isEmpty ? "Nothing to pay" : MoneyEntry.money(unpaid.reduce(0) { $0 + $1.cents }) + " outstanding")
                     }
                     NavigationLink { LastTimeView() } label: {
                         let oldest = markers.min { $0.date() < $1.date() }
@@ -744,9 +757,785 @@ struct LifeHubView: View {
             latestUpdates = latest
             borrowed = try cloud.borrowedItems()
             markers = try cloud.lastTimeEntries()
+            payments = try cloud.paymentsDue()
             let all = try cloud.inventoryCollections()
             collections = all.count
             records = try all.reduce(0) { $0 + (try cloud.inventoryRecords(for: $1.id).count) }
         } catch { issue = error.localizedDescription }
+    }
+}
+
+private struct MoneyLedgerSection: View {
+    @ObservedObject private var cloud = CloudStore.shared
+    @State private var entries: [MoneyEntry] = []
+    @State private var editing: MoneyEntry?
+    @State private var importing = false
+    @State private var payment: MoneyPayment?
+    @State private var showSettled = false
+    @State private var issue: String?
+    private var people: [String] { Array(Set(entries.map(\.person))).sorted { $0.localizedStandardCompare($1) == .orderedAscending } }
+    private var visiblePeople: [String] { people.filter { person in showSettled || MoneyEntry.balance(entries.filter { $0.person == person }) != 0 } }
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack {
+                Text("Money").font(.title2.bold())
+                Spacer()
+                Button("Import list", systemImage: "doc.on.clipboard") { importing = true }
+                Button("Add money", systemImage: "plus") {
+                    editing = MoneyEntry(person: "", title: "", day: MoneyEntry.dayString(Date()), cents: 0)
+                }
+            }
+            Text("Positive amounts: they owe me. Negative amounts: I owe them. Add repayments with the opposite sign.")
+                .font(.callout).foregroundStyle(.secondary)
+            if entries.isEmpty {
+                Text("Add a charge, repayment, or import a list to start a balance for someone.").foregroundStyle(.secondary)
+            } else {
+                let balances = people.map { person in MoneyEntry.balance(entries.filter { $0.person == person }) }
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 16) { totals(balances) }
+                    VStack(alignment: .leading, spacing: 8) { totals(balances) }
+                }
+                Toggle("Show settled people", isOn: $showSettled)
+                if visiblePeople.isEmpty {
+                    Text("Everyone is settled up. Add a new charge when someone owes you again.").foregroundStyle(.secondary)
+                }
+                ForEach(visiblePeople, id: \.self) { person in
+                    let ledger = entries.filter { $0.person == person }
+                    let balance = MoneyEntry.balance(ledger)
+                    VStack(alignment: .leading, spacing: 10) {
+                        HStack {
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(person).font(.headline)
+                                Text(balance > 0 ? "Owes me \(MoneyEntry.money(balance))" : balance < 0 ? "I owe \(MoneyEntry.money(-balance))" : "Settled up")
+                                    .foregroundStyle(balance < 0 ? Color.orange : Color.teal).monospacedDigit()
+                            }
+                            Spacer()
+                            ShareLink(item: MoneyEntry.summary(person: person, entries: ledger)) { Image(systemName: "square.and.arrow.up") }
+                                .accessibilityLabel("Share summary for \(person)")
+                            Button("Copy summary", systemImage: "doc.on.doc") { copy(MoneyEntry.summary(person: person, entries: ledger)) }
+                                .labelStyle(.iconOnly).accessibilityLabel("Copy summary for \(person)")
+                        }
+                        if balance != 0 {
+                            Button("Record payment", systemImage: "banknote") {
+                                payment = MoneyPayment(person: person, balance: balance)
+                            }
+                        }
+                        DisclosureGroup("\(ledger.count) entries · view or edit") {
+                            ForEach(MoneyEntry.ordered(ledger)) { entry in
+                                Button { editing = entry } label: {
+                                    HStack(alignment: .firstTextBaseline) {
+                                        VStack(alignment: .leading) {
+                                            Text(entry.title).foregroundStyle(.primary)
+                                            Text(entry.day).font(.caption).foregroundStyle(.secondary)
+                                        }
+                                        Spacer()
+                                        Text(MoneyEntry.money(entry.cents, signed: true)).monospacedDigit()
+                                            .foregroundStyle(entry.cents < 0 ? Color.orange : Color.teal)
+                                    }.padding(.vertical, 6).contentShape(Rectangle())
+                                }.buttonStyle(.plain)
+                                Divider()
+                            }
+                        }
+                    }.padding(16).hippoCard()
+                }
+            }
+        }
+        .task { reload() }
+        .onChange(of: cloud.revision) { _, _ in reload() }
+        .sheet(item: $editing) { MoneyEntryEditor(entry: $0, people: people).frame(minWidth: 320, minHeight: 400) }
+        .sheet(item: $payment) { payment in
+            MoneyEntryEditor(entry: MoneyEntry(person: payment.person, title: "Payment", day: MoneyEntry.dayString(Date()), cents: 0), people: people, paymentBalance: payment.balance)
+                .frame(minWidth: 320, minHeight: 400)
+        }
+        .sheet(isPresented: $importing) { MoneyListImporter(people: people).frame(minWidth: 340, minHeight: 480) }
+        .alert("Money", isPresented: Binding(get: { issue != nil }, set: { if !$0 { issue = nil } })) {
+            Button("OK") { issue = nil }
+        } message: { Text(issue ?? "") }
+    }
+    @ViewBuilder private func totals(_ balances: [Int]) -> some View {
+        Text("Owed to me: \(MoneyEntry.money(balances.filter { $0 > 0 }.reduce(0, +)))")
+        Text("I owe: \(MoneyEntry.money(-balances.filter { $0 < 0 }.reduce(0, +)))")
+        Text("Net: \(MoneyEntry.money(balances.reduce(0, +), signed: true))").bold()
+    }
+    private func reload() {
+        do { entries = try cloud.moneyEntries() } catch { issue = error.localizedDescription }
+    }
+    private func copy(_ text: String) {
+        #if os(macOS)
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+        #else
+        UIPasteboard.general.string = text
+        #endif
+    }
+}
+
+private struct MoneyPayment: Identifiable {
+    var id = UUID()
+    let person: String
+    let balance: Int
+}
+
+private struct MoneyEntryEditor: View {
+    @Environment(\.dismiss) private var dismiss
+    @State var entry: MoneyEntry
+    let people: [String]
+    var paymentBalance: Int? = nil
+    @State private var amount = ""
+    @State private var issue: String?
+    @State private var confirmingDelete = false
+    private var valid: Bool {
+        !entry.person.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+        !entry.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+        MoneyEntry.amount(amount).map { cents in
+            if let balance = paymentBalance { return MoneyEntry.paymentCents(cents, balance: balance) != nil }
+            return cents != 0
+        } == true
+    }
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    HippoField("Person", text: $entry.person, prompt: "Person’s name").disabled(paymentBalance != nil)
+                    if paymentBalance == nil && !people.isEmpty {
+                        Menu("Choose existing person") {
+                            ForEach(people, id: \.self) { person in Button(person) { entry.person = person } }
+                        }
+                    }
+                    HippoField("Description", text: $entry.title, prompt: "e.g. Groceries or repayment")
+                    DatePicker("Date", selection: Binding(get: { entry.date }, set: { entry.day = MoneyEntry.dayString($0) }), displayedComponents: .date)
+                    HippoField(paymentBalance == nil ? "Amount ($)" : "Payment amount ($)", text: $amount, prompt: paymentBalance == nil ? "e.g. +24.30 or -15.00" : "e.g. 25.00")
+                    if let balance = paymentBalance {
+                        Text(balance > 0 ? "Payment received from \(entry.person)" : "Payment made to \(entry.person)")
+                        Text("Outstanding: \(MoneyEntry.money(abs(balance)))")
+                        Text("Enter a positive amount up to the outstanding balance.").font(.caption).foregroundStyle(.secondary)
+                        if let cents = MoneyEntry.amount(amount), let adjustment = MoneyEntry.paymentCents(cents, balance: balance) {
+                            Text("Remaining: \(MoneyEntry.money(abs(balance + adjustment)))").bold()
+                        }
+                    } else {
+                    Text("Positive: they owe me. Negative: I owe them. A repayment from them is negative; a repayment from me is positive. Use up to two decimal places.")
+                        .font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+                if entry.cents != 0 {
+                    Section { Button("Delete entry", role: .destructive) { confirmingDelete = true } }
+                }
+            }.hippoForm()
+            .navigationTitle(paymentBalance != nil ? "Record payment" : entry.cents == 0 ? "Add money entry" : "Edit money entry")
+            .onAppear {
+                let cents = paymentBalance.map { abs($0) } ?? entry.cents
+                amount = cents == 0 ? "" : String(format: "%.2f", Double(cents) / 100)
+            }
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) { Button("Save") { save() }.disabled(!valid) }
+            }
+            .confirmationDialog("Delete this money entry?", isPresented: $confirmingDelete, titleVisibility: .visible) {
+                Button("Delete entry", role: .destructive) { entry.deletedAt = Date(); save() }
+            }
+            .alert("Could not save entry", isPresented: Binding(get: { issue != nil }, set: { if !$0 { issue = nil } })) {
+                Button("OK") { issue = nil }
+            } message: { Text(issue ?? "") }
+        }
+    }
+    private func save() {
+        guard let cents = MoneyEntry.amount(amount) else { return }
+        if let balance = paymentBalance {
+            guard let adjustment = MoneyEntry.paymentCents(cents, balance: balance) else { return }
+            entry.cents = adjustment
+        } else { entry.cents = cents }
+        entry.person = entry.person.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let existing = people.first(where: { $0.localizedCaseInsensitiveCompare(entry.person) == .orderedSame }) { entry.person = existing }
+        entry.title = entry.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        do { try CloudStore.shared.saveMoneyEntry(entry); dismiss() } catch { issue = error.localizedDescription }
+    }
+}
+
+private struct MoneyListImporter: View {
+    @Environment(\.dismiss) private var dismiss
+    let people: [String]
+    @State private var person = ""
+    @State private var year = Calendar.current.component(.year, from: Date())
+    @State private var text = ""
+    @State private var preview: [MoneyEntry] = []
+    @State private var saved = 0
+    @State private var issue: String?
+    var body: some View {
+        NavigationStack {
+            Form {
+                if preview.isEmpty && saved == 0 {
+                    HippoField("Person", text: $person, prompt: "Who is this list with?")
+                    if !people.isEmpty {
+                        Menu("Choose existing person") {
+                            ForEach(people, id: \.self) { name in Button(name) { person = name } }
+                        }
+                    }
+                    Stepper("Year: \(String(year))", value: $year, in: 1900...9999)
+                    HippoTextArea(label: "Paste your list", text: $text)
+                    Text("One entry per line: 5/9 - Farmer’s Market - +24.30. Negative amounts subtract from what they owe you. Blank lines and standalone totals are ignored; the balance is recalculated.")
+                        .font(.caption).foregroundStyle(.secondary)
+                } else {
+                    Section("Review before importing") {
+                        Text("\(preview.count) entries for \(person)")
+                        Text("Net total: \(MoneyEntry.money(MoneyEntry.balance(preview), signed: true))").bold()
+                        if saved > 0 { Text("\(saved) entries already saved. Retry to save the remaining entries.") }
+                        ForEach(preview) { entry in
+                            LabeledContent("\(entry.day) · \(entry.title)", value: MoneyEntry.money(entry.cents, signed: true))
+                        }
+                        if saved == 0 { Button("Back to list") { preview = [] } }
+                    }
+                }
+            }.hippoForm()
+            .navigationTitle("Import money list")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) {
+                    if preview.isEmpty {
+                        Button("Review") { review() }.disabled(person.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || text.isEmpty)
+                    } else {
+                        Button("Import \(preview.count) entries") { save() }
+                    }
+                }
+            }
+            .alert("Money import", isPresented: Binding(get: { issue != nil }, set: { if !$0 { issue = nil } })) {
+                Button("OK") { issue = nil }
+            } message: { Text(issue ?? "") }
+        }
+    }
+    private func review() {
+        person = person.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let existing = people.first(where: { $0.localizedCaseInsensitiveCompare(person) == .orderedSame }) { person = existing }
+        do { preview = try MoneyEntry.parse(text, person: person, year: year) } catch { issue = error.localizedDescription }
+    }
+    private func save() {
+        do {
+            while let entry = preview.first {
+                try CloudStore.shared.saveMoneyEntry(entry)
+                preview.removeFirst(); saved += 1
+            }
+            dismiss()
+        } catch { issue = error.localizedDescription }
+    }
+}
+
+struct ThingsToPayView: View {
+    @ObservedObject private var cloud = CloudStore.shared
+    @State private var payments: [PaymentDue] = []
+    @State private var editing: PaymentDue?
+    @State private var showPaid = false
+    @State private var issue: String?
+    @State private var markingPaid: PaymentDue?
+    private var unpaid: [PaymentDue] { payments.filter { $0.paidAt == nil } }
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: 60)) { context in
+            HippoCanvas {
+                HippoPageHeader(title: "Things To Pay", summary: Text("\(unpaid.count) unpaid · \(MoneyEntry.money(unpaid.reduce(0) { $0 + $1.cents })) outstanding")) {
+                    Toggle("Show paid", isOn: $showPaid)
+                }
+                NavigationLink { RecurringBillsView() } label: {
+                    Label("Recurring bills & pay periods", systemImage: "repeat")
+                        .font(.headline).padding().frame(maxWidth: .infinity, alignment: .leading).hippoCard()
+                }
+                Text("One-off bills").font(.title2.bold())
+                if payments.isEmpty {
+                    HippoEmptyState(title: "Keep track of one-off payments", icon: "creditcard", message: "Add tuition, HOA fees, or lessons with their own amounts and due dates.")
+                        .padding(.horizontal, 16).hippoCard()
+                } else {
+                    let dueSoon = unpaid.filter { [.overdue, .today, .soon].contains($0.group(today: context.date)) }
+                    Text("Due through the next 7 days: \(MoneyEntry.money(dueSoon.reduce(0) { $0 + $1.cents }))")
+                        .font(.headline)
+                    if unpaid.isEmpty && !showPaid {
+                        HippoNotice(text: "Everything is paid. Turn on Show paid to see the history.", icon: "checkmark.circle")
+                    }
+                    ForEach(PaymentDue.DueGroup.allCases, id: \.self) { group in
+                        let rows = payments.filter { $0.group(today: context.date) == group && (showPaid || $0.paidAt == nil) }
+                        if !rows.isEmpty {
+                            VStack(alignment: .leading, spacing: 10) {
+                                HStack {
+                                    Text(group.rawValue).font(.headline).foregroundStyle(group == .overdue ? Color.orange : Color.primary)
+                                    Spacer()
+                                    Text(MoneyEntry.money(rows.reduce(0) { $0 + $1.cents })).monospacedDigit().foregroundStyle(.secondary)
+                                }
+                                ForEach(rows) { payment in paymentRow(payment) }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        .hippoCanvasPage("Things To Pay")
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button("Add payment", systemImage: "plus") {
+                    editing = PaymentDue(title: "", cents: 0, day: MoneyEntry.dayString(Date()))
+                }
+            }
+        }
+        .task { reload() }
+        .onChange(of: cloud.revision) { _, _ in reload() }
+        .sheet(item: $editing) { PaymentDueEditor(payment: $0).hippoFinanceSheet(width: 580, height: 650) }
+        .confirmationDialog("Mark this payment as paid?", isPresented: Binding(get: { markingPaid != nil }, set: { if !$0 { markingPaid = nil } }), titleVisibility: .visible) {
+            if let payment = markingPaid {
+                Button("Mark \(MoneyEntry.money(payment.cents)) paid") { setPaid(payment, paid: true); markingPaid = nil }
+            }
+        }
+        .alert("Things To Pay", isPresented: Binding(get: { issue != nil }, set: { if !$0 { issue = nil } })) {
+            Button("OK") { issue = nil }
+        } message: { Text(issue ?? "") }
+    }
+    private func paymentRow(_ payment: PaymentDue) -> some View {
+        HStack(spacing: 12) {
+            Button {
+                if payment.paidAt == nil { markingPaid = payment } else { setPaid(payment, paid: false) }
+            } label: {
+                Image(systemName: payment.paidAt == nil ? "circle" : "checkmark.circle.fill")
+                    .font(.title2).foregroundStyle(.teal).frame(width: 36, height: 44)
+            }.buttonStyle(.plain)
+                .accessibilityLabel(payment.paidAt == nil ? "Mark \(payment.title) paid" : "Mark \(payment.title) unpaid")
+            Button { editing = payment } label: {
+                HStack {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(payment.title).font(.headline).strikethrough(payment.paidAt != nil).foregroundStyle(.primary)
+                        Text("Due \(payment.date.formatted(date: .abbreviated, time: .omitted))").font(.caption).foregroundStyle(.secondary)
+                        if let date = payment.paidAt {
+                            Text("Paid \(date.formatted(date: .abbreviated, time: .omitted))").font(.caption).foregroundStyle(.secondary)
+                        }
+                        if !payment.notes.isEmpty { Text(payment.notes).font(.callout).foregroundStyle(.secondary).lineLimit(2) }
+                    }
+                    Spacer(minLength: 8)
+                    Text(MoneyEntry.money(payment.cents)).monospacedDigit().foregroundStyle(.primary)
+                }.contentShape(Rectangle())
+            }.buttonStyle(.plain).accessibilityHint("Edit payment")
+        }.padding(14).hippoCard()
+    }
+    private func setPaid(_ payment: PaymentDue, paid: Bool) {
+        var changed = payment; changed.paidAt = paid ? Date() : nil
+        do { try cloud.savePaymentDue(changed); reload() } catch { issue = error.localizedDescription }
+    }
+    private func reload() {
+        do { payments = try cloud.paymentsDue() } catch { issue = error.localizedDescription }
+    }
+}
+
+private struct PaymentDueEditor: View {
+    @Environment(\.dismiss) private var dismiss
+    @State var payment: PaymentDue
+    @State private var amount = ""
+    @State private var issue: String?
+    @State private var confirmingDelete = false
+    private var valid: Bool {
+        !payment.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && MoneyEntry.amount(amount).map { $0 > 0 } == true
+    }
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    HippoField("Payment", text: $payment.title, prompt: "e.g. Tuition or piano lesson")
+                    HippoField("Amount ($)", text: $amount, prompt: "e.g. 75.00")
+                    DatePicker("Due date", selection: Binding(get: { payment.date }, set: { payment.day = MoneyEntry.dayString($0) }), displayedComponents: .date)
+                    HippoTextArea(label: "Notes", text: $payment.notes)
+                    Toggle("Paid", isOn: Binding(get: { payment.paidAt != nil }, set: { payment.paidAt = $0 ? Date() : nil }))
+                    if payment.paidAt != nil {
+                        DatePicker("Paid on", selection: Binding(get: { payment.paidAt ?? Date() }, set: { payment.paidAt = $0 }), displayedComponents: .date)
+                    }
+                    Text("Each entry is a single payment with its own amount and due date.").font(.caption).foregroundStyle(.secondary)
+                }
+                if payment.cents != 0 {
+                    Section { Button("Delete payment", role: .destructive) { confirmingDelete = true } }
+                }
+            }.hippoForm()
+            .navigationTitle(payment.cents == 0 ? "Add payment" : "Edit payment")
+            .onAppear { amount = payment.cents == 0 ? "" : String(format: "%.2f", Double(payment.cents) / 100) }
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) { Button("Save", action: save).disabled(!valid) }
+            }
+            .confirmationDialog("Delete this payment?", isPresented: $confirmingDelete, titleVisibility: .visible) {
+                Button("Delete payment", role: .destructive) { payment.deletedAt = Date(); save() }
+            }
+            .alert("Could not save payment", isPresented: Binding(get: { issue != nil }, set: { if !$0 { issue = nil } })) {
+                Button("OK") { issue = nil }
+            } message: { Text(issue ?? "") }
+        }
+    }
+    private func save() {
+        guard let cents = MoneyEntry.amount(amount), cents > 0 else { return }
+        payment.cents = cents
+        payment.title = payment.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        do { try CloudStore.shared.savePaymentDue(payment); dismiss() } catch { issue = error.localizedDescription }
+    }
+}
+
+struct RecurringBillsView: View {
+    @ObservedObject private var cloud = CloudStore.shared
+    @State private var bills: [RecurringBill] = []
+    @State private var oneOff: [PaymentDue] = []
+    @State private var anchor = MoneyEntry(person: "", title: "", day: "2026-11-27", cents: 0).date
+    @State private var offset = 0
+    @State private var editing: RecurringBill?
+    @State private var priorCarryoverCents = 0
+    @State private var budget: PayPeriodBudget?
+    @State private var editingBudget: PayPeriodBudget?
+    @State private var importing = false
+    @State private var issue: String?
+    private let calendar = Calendar(identifier: .gregorian)
+    private var start: Date { calendar.date(byAdding: .day, value: offset * 14, to: RecurringBill.periodStart(containing: Date(), anchor: anchor))! }
+    private var end: Date { calendar.date(byAdding: .day, value: 14, to: start)! }
+    @State private var occurrences: [(bill: RecurringBill, date: Date)] = []
+    private func updateOccurrences() {
+        occurrences = bills.flatMap { bill in bill.occurrences(from: start, to: end).map { (bill: bill, date: $0) } }.sorted { $0.date < $1.date }
+    }
+    private var periodOneOff: [PaymentDue] { oneOff.filter { $0.paidAt == nil && $0.date >= start && $0.date < end } }
+    private var billTotal: Int { occurrences.reduce(0) { $0 + $1.bill.cents } + periodOneOff.reduce(0) { $0 + $1.cents } }
+    var body: some View {
+        HippoCanvas {
+            HippoPageHeader(title: "Recurring bills", summary: Text("Assumed paid · no checkoffs")) { EmptyView() }
+            VStack(alignment: .leading, spacing: 12) {
+                DatePicker("An every-other-Friday payday", selection: Binding(get: { anchor }, set: { value in
+                    guard calendar.component(.weekday, from: value) == 6 else { issue = "Choose a Friday payday."; return }
+                    do { try cloud.savePaydayAnchor(MoneyEntry.dayString(value)); anchor = value; offset = 0 } catch { issue = error.localizedDescription }
+                }), displayedComponents: .date)
+                HStack {
+                    Button("Previous") { offset -= 1 }
+                    Spacer()
+                    Button("Current period") { offset = 0 }
+                    Spacer()
+                    Button("Next") { offset += 1 }
+                }
+                Text("\(start.formatted(date: .abbreviated, time: .omitted)) – \(calendar.date(byAdding: .day, value: -1, to: end)!.formatted(date: .abbreviated, time: .omitted))").font(.headline)
+                Text("Recurring: \(MoneyEntry.money(occurrences.reduce(0) { $0 + $1.bill.cents }))")
+                Text("Unpaid one-off bills: \(MoneyEntry.money(periodOneOff.reduce(0) { $0 + $1.cents }))")
+                Text("Total to budget: \(MoneyEntry.money(occurrences.reduce(0) { $0 + $1.bill.cents } + periodOneOff.reduce(0) { $0 + $1.cents }))").font(.title2.bold())
+                Text("Includes payday Friday through the Thursday before the next payday. One-off totals include unpaid bills due in this period.").font(.callout).foregroundStyle(.secondary)
+                ForEach(Array(occurrences.enumerated()), id: \.offset) { _, item in
+                    HStack { Text(item.bill.title); Spacer(); Text(item.date.formatted(date: .abbreviated, time: .omitted)); Text(MoneyEntry.money(item.bill.cents)).monospacedDigit() }
+                }
+                ForEach(periodOneOff) { item in
+                    HStack { Text("\(item.title) (one-off)"); Spacer(); Text(item.date.formatted(date: .abbreviated, time: .omitted)); Text(MoneyEntry.money(item.cents)).monospacedDigit() }
+                }
+                if occurrences.isEmpty && periodOneOff.isEmpty { Text("No bills in this pay period.").foregroundStyle(.secondary) }
+            }.padding().hippoCard()
+            budgetSummary
+            Text("Active recurring bills").font(.title2.bold())
+            Text("November 1, 2026 – October 31, 2027. Older series stay active if they still have a bill due in this budget year.").font(.callout).foregroundStyle(.secondary)
+            if bills.isEmpty { Text("Add bills or import your Google Calendar .ics export.").foregroundStyle(.secondary) }
+            ForEach(bills) { bill in
+                Button { editing = bill } label: {
+                    HStack { VStack(alignment: .leading) { Text(bill.title).font(.headline); Text("Every \(bill.interval) \(bill.yearly ? "year(s)" : "month(s)") · from \(bill.day)").font(.callout).foregroundStyle(.secondary) }; Spacer(); Text(MoneyEntry.money(bill.cents)) }.padding().hippoCard()
+                }.buttonStyle(.plain)
+            }
+        }
+        .hippoCanvasPage("Recurring bills")
+        .toolbar {
+            ToolbarItemGroup(placement: .primaryAction) {
+                Button("Import calendar", systemImage: "square.and.arrow.down") { importing = true }
+                Button("Add bill", systemImage: "plus") { editing = RecurringBill(title: "", cents: 0, day: MoneyEntry.dayString(Date())) }
+            }
+        }
+        .task { reload() }
+        .onChange(of: cloud.revision) { _, _ in reload() }
+        .onChange(of: start) { _, _ in updateOccurrences(); loadBudget() }
+        .sheet(item: $editingBudget) { PayPeriodBudgetEditor(budget: $0, billsCents: billTotal, priorCarryoverCents: priorCarryoverCents).hippoFinanceSheet(width: 680, height: 720) }
+        .sheet(item: $editing) { RecurringBillEditor(bill: $0).hippoFinanceSheet(width: 580, height: 650) }
+        .sheet(isPresented: $importing) { RecurringBillImporter().hippoFinanceSheet(width: 680, height: 720) }
+        .alert("Recurring bills", isPresented: Binding(get: { issue != nil }, set: { if !$0 { issue = nil } })) { Button("OK") { issue = nil } } message: { Text(issue ?? "") }
+    }
+    private var budgetSummary: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("Pay-period budget").font(.title2.bold())
+                Spacer()
+                Button("Edit budget & paychecks") { editingBudget = budget ?? PayPeriodBudget(startDay: MoneyEntry.dayString(start)) }.disabled(budget == nil)
+            }
+            if let budget {
+                ForEach(budget.paychecks) { paycheck in
+                    HStack {
+                        Text(paycheck.name + (paycheck.useActualAmount ? "" : " (estimate)"))
+                        Spacer()
+                        if let net = paycheck.netAmount { Text(MoneyEntry.money(BudgetPaycheck.roundedCents(net))).monospacedDigit() }
+                    }
+                }
+                budgetLine("Paychecks / other income", cents: budget.incomeCents)
+                budgetLine("Previous period’s carryover", cents: budget.includePriorCarryover ? priorCarryoverCents : 0)
+                budgetLine("Total income", cents: budget.totalIncomeCents(priorCarryoverCents: priorCarryoverCents))
+                budgetLine("Bills (automatic)", cents: -billTotal)
+                budgetLine("Additional to debt", cents: -budget.additionalDebtCents)
+                budgetLine("Investments", cents: -budget.investmentCents)
+                budgetLine("Savings", cents: -budget.savingsCents)
+                budgetLine("Carryover set aside", cents: -budget.carryoverCents)
+                Divider()
+                budgetLine("Free spending", cents: budget.freeSpendingCents(billsCents: billTotal, priorCarryoverCents: priorCarryoverCents)).font(.headline)
+                if budget.incomeCents == nil { Text("Add paycheck amounts or hours to calculate income and free spending.").foregroundStyle(.secondary) }
+                if !budget.notes.isEmpty { Text(budget.notes).font(.callout) }
+                Text("Income − bills − extra debt − investments − savings − carryover. Positive carryover is set aside, matching your sheet. Each pay period has its own saved inputs.").font(.callout).foregroundStyle(.secondary)
+            }
+        }.padding().hippoCard()
+    }
+    private func budgetLine(_ title: String, cents: Int?) -> some View {
+        HStack { Text(title); Spacer(); Text(cents.map { MoneyEntry.money($0) } ?? "—").monospacedDigit() }
+    }
+    private func loadBudget() {
+        budget = nil
+        do {
+            let loaded = try cloud.payPeriodBudget(startDay: MoneyEntry.dayString(start)) ?? PayPeriodBudget(startDay: MoneyEntry.dayString(start))
+            let previous = calendar.date(byAdding: .day, value: -14, to: start)!
+            let previousCarryover = try cloud.payPeriodBudget(startDay: MoneyEntry.dayString(previous))?.carryoverCents ?? 0
+            priorCarryoverCents = previousCarryover
+            budget = loaded
+        }
+        catch { issue = error.localizedDescription }
+    }
+    private func reload() {
+        do {
+            bills = try cloud.recurringBills(); oneOff = try cloud.paymentsDue()
+            updateOccurrences()
+            if let day = try cloud.paydayAnchor() { anchor = MoneyEntry(person: "", title: "", day: day, cents: 0).date }
+            loadBudget()
+        } catch { issue = error.localizedDescription }
+    }
+}
+
+private struct RecurringBillEditor: View {
+    @Environment(\.dismiss) private var dismiss
+    @State var bill: RecurringBill
+    @State private var amount = ""
+    @State private var issue: String?
+    @State private var deleting = false
+    private var valid: Bool { !bill.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && (MoneyEntry.amount(amount) ?? 0) > 0 }
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    HippoField("Bill", text: $bill.title, prompt: "Bill name")
+                    HippoField("Amount ($)", text: $amount, prompt: "12.34")
+                    DatePicker("First occurrence", selection: Binding(get: { bill.date }, set: { bill.day = MoneyEntry.dayString($0) }), displayedComponents: .date)
+                    Toggle("Yearly", isOn: $bill.yearly)
+                    Stepper("Every \(bill.interval) \(bill.yearly ? "years" : "months")", value: $bill.interval, in: 1...120)
+                    HippoTextArea(label: "Notes", text: $bill.notes)
+                    Text("Assumed paid. Fixed dates skip months without that date (including February 29 in non-leap years).").font(.callout).foregroundStyle(.secondary)
+                    if bill.count != nil || bill.until != nil || !bill.excluded.isEmpty { Text("Calendar end limits and excluded dates are preserved.").font(.callout) }
+                }
+                if bill.cents > 0 { Button("Delete recurring bill", role: .destructive) { deleting = true } }
+            }.hippoForm()
+            .navigationTitle("Recurring bill")
+            .onAppear { amount = bill.cents == 0 ? "" : String(format: "%.2f", Double(bill.cents) / 100) }
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) { Button("Save") { save() }.disabled(!valid) }
+            }
+            .confirmationDialog("Delete recurring bill?", isPresented: $deleting, titleVisibility: .visible) { Button("Delete", role: .destructive) { bill.deletedAt = Date(); save() } }
+            .alert("Could not save", isPresented: Binding(get: { issue != nil }, set: { if !$0 { issue = nil } })) { Button("OK") { issue = nil } } message: { Text(issue ?? "") }
+        }
+    }
+    private func save() {
+        guard let cents = MoneyEntry.amount(amount), cents > 0 else { return }
+        bill.cents = cents; bill.title = bill.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        do { try CloudStore.shared.saveRecurringBill(bill); dismiss() } catch { issue = error.localizedDescription }
+    }
+}
+
+private struct RecurringBillImporter: View {
+    @Environment(\.dismiss) private var dismiss
+    @State private var choosing = false
+    @State private var parsing = false
+    @State private var saving = false
+    @State private var operation: Task<Void, Never>?
+    private var busy: Bool { parsing || saving }
+    @State private var bills: [RecurringBill] = []
+    @State private var warnings: [String] = []
+    @State private var amounts: [UUID: String] = [:]
+    @State private var selected: Set<UUID> = []
+    @State private var page = 0
+    @State private var warningPage = 0
+    @State private var issue: String?
+    private var valid: Bool { !selected.isEmpty && bills.filter { selected.contains($0.id) }.allSatisfy { (MoneyEntry.amount(amounts[$0.id] ?? "") ?? 0) > 0 } }
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Export from Google Calendar on a computer") {
+                    Text("Open Calendar settings → Import & export → Export. Unzip the download and choose the .ics file for your bills calendar.")
+                    Text("Only series with a bill due November 1, 2026 through October 31, 2027 are included. Expired series and series starting after this budget year are skipped. Monthly and yearly series are supported. Other patterns and series with changed individual occurrences are listed for manual review. Reimporting skips existing calendar identities, including deleted bills.")
+                    Button("Choose .ics file") { choosing = true }.disabled(busy)
+                    if busy { ProgressView(saving ? "Saving bills…" : "Reading calendar…").frame(maxWidth: .infinity, alignment: .leading) }
+                }
+                if !bills.isEmpty {
+                    Section("Review bills and confirm every amount") {
+                        if bills.count > 50 {
+                            HStack {
+                                Button("Previous bills") { page -= 1 }.disabled(page == 0)
+                                Spacer()
+                                Text("\(page * 50 + 1)–\(min(bills.count, (page + 1) * 50)) of \(bills.count)")
+                                Spacer()
+                                Button("Next bills") { page += 1 }.disabled((page + 1) * 50 >= bills.count)
+                            }
+                        }
+                        ForEach(Array(bills.dropFirst(page * 50).prefix(50))) { bill in
+                            VStack(alignment: .leading) {
+                                Toggle(bill.title, isOn: Binding(get: { selected.contains(bill.id) }, set: { if $0 { selected.insert(bill.id) } else { selected.remove(bill.id) } }))
+                                Text("\(bill.yearly ? "Yearly" : "Monthly") · every \(bill.interval) · from \(bill.day)").font(.callout)
+                                HippoField("Amount ($)", text: Binding(get: { amounts[bill.id] ?? "" }, set: { amounts[bill.id] = $0 }), prompt: "Required")
+                            }
+                        }
+                    }
+                }
+                if !warnings.isEmpty {
+                    Section("Import summary & items to review") {
+                        ForEach(Array(warnings.enumerated().dropFirst(warningPage * 50).prefix(50)), id: \.offset) { _, text in Text(text) }
+                        if warnings.count > 50 {
+                            HStack {
+                                Button("Previous messages") { warningPage -= 1 }.disabled(warningPage == 0)
+                                Spacer()
+                                Text("Page \(warningPage + 1) of \((warnings.count + 49) / 50)")
+                                Spacer()
+                                Button("Next messages") { warningPage += 1 }.disabled((warningPage + 1) * 50 >= warnings.count)
+                            }
+                        }
+                    }
+                }
+            }.hippoForm()
+            .disabled(saving)
+            .navigationTitle("Import recurring bills")
+            .interactiveDismissDisabled(busy)
+            .onDisappear { operation?.cancel() }
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button(parsing ? "Cancel import" : "Cancel") { operation?.cancel(); dismiss() }.disabled(saving) }
+                ToolbarItem(placement: .confirmationAction) { Button("Import \(selected.count) bills") { save() }.disabled(!valid || busy) }
+            }
+            .fileImporter(isPresented: $choosing, allowedContentTypes: [UTType(filenameExtension: "ics") ?? .data]) { result in
+                switch result {
+                case .success(let url): load(url)
+                case .failure(let error): issue = error.localizedDescription
+                }
+            }
+            .alert("Calendar import", isPresented: Binding(get: { issue != nil }, set: { if !$0 { issue = nil } })) { Button("OK") { issue = nil } } message: { Text(issue ?? "") }
+        }
+    }
+    private func load(_ url: URL) {
+        operation?.cancel()
+        parsing = true
+        bills = []; selected = []; amounts = [:]; warnings = []; page = 0; warningPage = 0
+        operation = Task { @MainActor in
+            defer { parsing = false }
+            do {
+                let preview = try await BillCalendarImport.load(url)
+                try Task.checkCancellation()
+                let known = Set(try CloudStore.shared.recurringBills(includeDeleted: true).compactMap(\.sourceUID))
+                bills = preview.bills.filter { !known.contains($0.sourceUID ?? "") }
+                warnings = preview.warnings
+                if preview.inactiveCount > 0 { warnings.append("\(preview.inactiveCount) inactive series skipped (no bills due in this budget year).") }
+                let skipped = preview.bills.count - bills.count
+                if skipped > 0 { warnings.append("\(skipped) previously imported series skipped.") }
+                if preview.bills.isEmpty && warnings.isEmpty { warnings = ["No recurring monthly or yearly bills found."] }
+                selected = Set(bills.map(\.id))
+                amounts = Dictionary(uniqueKeysWithValues: bills.map { ($0.id, $0.cents > 0 ? String(format: "%.2f", Double($0.cents) / 100) : "") })
+            } catch is CancellationError { /* Closing the sheet cancels parsing without an alert. */ }
+            catch { issue = error.localizedDescription }
+        }
+    }
+    private func save() {
+        guard valid, !busy else { return }
+        let importing = bills.filter { selected.contains($0.id) }.map { bill in
+            var copy = bill; copy.cents = MoneyEntry.amount(amounts[bill.id] ?? "")!; return copy
+        }
+        saving = true
+        operation = Task { @MainActor in
+            defer { saving = false }
+            do {
+                _ = try await CloudStore.shared.importRecurringBills(importing)
+                dismiss()
+            } catch { issue = error.localizedDescription }
+        }
+    }
+
+}
+
+private struct PayPeriodBudgetEditor: View {
+    @Environment(\.dismiss) private var dismiss
+    @State var budget: PayPeriodBudget
+    let billsCents: Int
+    let priorCarryoverCents: Int
+    @State private var debt = "0.00"
+    @State private var investments = "0.00"
+    @State private var savings = "0.00"
+    @State private var carryover = "0.00"
+    @State private var issue: String?
+    private var preview: PayPeriodBudget? {
+        guard let debt = MoneyEntry.amount(debt), let investments = MoneyEntry.amount(investments),
+              let savings = MoneyEntry.amount(savings), let carryover = MoneyEntry.amount(carryover),
+              budget.paychecks.allSatisfy(\.isValid) else { return nil }
+        var copy = budget
+        copy.additionalDebtCents = debt; copy.investmentCents = investments
+        copy.savingsCents = savings; copy.carryoverCents = carryover
+        return copy
+    }
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Paychecks and other income · \(budget.startDay)") {
+                    Text("Enter an actual take-home amount, or estimate it from hours × hourly rate × take-home %. Add each paycheck or other income separately.").font(.callout).foregroundStyle(.secondary)
+                    ForEach($budget.paychecks) { $paycheck in
+                        VStack(alignment: .leading, spacing: 10) {
+                            BudgetPaycheckFields(paycheck: $paycheck)
+                            Button("Remove income", role: .destructive) { budget.paychecks.removeAll { $0.id == paycheck.id } }
+                        }.padding(.vertical, 8)
+                    }
+                    Menu("Add paycheck or income", systemImage: "plus") {
+                        Button("Dan · estimate from hours") { budget.paychecks.append(.estimate(for: "Dan")) }
+                        Button("Sage · estimate from hours") { budget.paychecks.append(.estimate(for: "Sage")) }
+                        Button("Actual paycheck / other income") { budget.paychecks.append(BudgetPaycheck()) }
+                    }
+                }
+                Section("Budget allocations ($)") {
+                    LabeledContent("Bills (automatic)", value: MoneyEntry.money(billsCents))
+                    HippoField("Additional to debt", text: $debt, prompt: "0.00")
+                    HippoField("Investments", text: $investments, prompt: "0.00")
+                    HippoField("Savings", text: $savings, prompt: "0.00")
+                    HippoField("Carryover set aside", text: $carryover, prompt: "0.00")
+                    Toggle("Include previous period’s carryover in income", isOn: $budget.includePriorCarryover)
+                    LabeledContent("Previous period’s carryover", value: MoneyEntry.money(priorCarryoverCents))
+                    Text("Enter positive amounts to set money aside, or negative amounts to release it. Carryover is subtracted, as in your sheet; the next period can include it in income. Investments starts at $25 per new period, matching the sheet, and can be changed.").font(.callout).foregroundStyle(.secondary)
+                    HippoTextArea(label: "Notes", text: $budget.notes)
+                }
+                Section("Budget preview") {
+                    if let preview {
+                        LabeledContent("Income", value: preview.totalIncomeCents(priorCarryoverCents: priorCarryoverCents).map { MoneyEntry.money($0) } ?? "Add income")
+                        LabeledContent("Free spending", value: preview.freeSpendingCents(billsCents: billsCents, priorCarryoverCents: priorCarryoverCents).map { MoneyEntry.money($0) } ?? "Add income")
+                    } else { Text("Complete each income entry and use valid dollar amounts for all allocations.").foregroundStyle(.secondary) }
+                    Text("Estimated income uses your sheet’s take-home percentages, not a payroll tax calculation. Replace estimates with actual amounts when available. Totals sum unrounded estimates before rounding to cents.").font(.callout).foregroundStyle(.secondary)
+                }
+            }.hippoForm()
+            .navigationTitle("Pay-period budget")
+            .onAppear {
+                debt = dollars(budget.additionalDebtCents); investments = dollars(budget.investmentCents)
+                savings = dollars(budget.savingsCents); carryover = dollars(budget.carryoverCents)
+            }
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) { Button("Save") { save() }.disabled(preview == nil) }
+            }
+            .alert("Could not save budget", isPresented: Binding(get: { issue != nil }, set: { if !$0 { issue = nil } })) { Button("OK") { issue = nil } } message: { Text(issue ?? "") }
+        }
+    }
+    private func dollars(_ cents: Int) -> String { String(format: "%.2f", Double(cents) / 100) }
+    private func save() {
+        guard let preview else { return }
+        do { try CloudStore.shared.savePayPeriodBudget(preview); dismiss() } catch { issue = error.localizedDescription }
+    }
+}
+
+private struct BudgetPaycheckFields: View {
+    @Binding var paycheck: BudgetPaycheck
+    var body: some View {
+        HippoField("Person / income source", text: $paycheck.name, prompt: "Paycheck, refund, or other income")
+        Toggle("Use actual take-home amount", isOn: $paycheck.useActualAmount)
+        if paycheck.useActualAmount {
+            HippoField("Take-home amount ($)", text: $paycheck.actualAmount, prompt: "Required; zero is allowed")
+            HippoField("Hours (optional reference)", text: $paycheck.hours, prompt: "Hours worked")
+        } else {
+            HippoField("Hours", text: $paycheck.hours, prompt: "e.g. 33.25")
+            HippoField("Hourly rate ($)", text: $paycheck.hourlyRate, prompt: "e.g. 50.98")
+            HippoField("Take-home (% of gross)", text: $paycheck.takeHomePercent, prompt: "e.g. 82.402603")
+            if let amount = paycheck.netAmount { Text("Estimated take-home: \(MoneyEntry.money(BudgetPaycheck.roundedCents(amount)))").font(.headline) }
+        }
     }
 }

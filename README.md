@@ -7,8 +7,9 @@ A native SwiftUI app for household tasks, meal planning, and groceries on iOS 17
 - Dashboard with today's tasks, flexible tasks, and completion counts.
 - Personal and shared tasks with recurring schedules, completion history, and attached notes.
 - Life Management with Waiting For records, dated updates, and flexible task creation.
-- Borrowing & Lending grouped by person, with return checkoffs and history.
+- Borrowing & Lending grouped by person, with return checkoffs and history, plus money balances, list import, and copyable summaries.
 - Last Time markers with date-only entries, fuzzy elapsed time, and Shared/Sage/Dan filters.
+- Things To Pay for one-off payments with individual amounts, due dates, notes, and paid history.
 - Inventory collections with independent fields, CSV import, search, and editable records.
 - Weekly dinner planning and a categorized grocery checklist.
 - iCloud syncing and household sharing.
@@ -60,3 +61,43 @@ All Life Management records belong to the shared household, including inventory 
 In each inventory collection, **Main title** chooses which field appears as a record’s heading, or **None** shows only labeled fields. This preference is saved with the collection and shared with the household. The Tasks page has an **Everyone / Sage / Dan / Shared** filter, applied to both active and completed/delayed tasks. Waiting For’s **Add record** button opens a title form.
 
 Every page uses the dashboard’s layout: a tinted canvas, white rounded cards, section headers with counts, and grids that add columns as the window widens. Filters sit beside each page’s summary line; add actions live in toolbars. Tasks shows Scheduled (grouped into Overdue, Today, Tomorrow, This week, Later) beside Flexible on wide windows. Waiting For shows records beside the selected record’s timeline on wide windows, with an inline box for new updates. Last Time groups markers by age, oldest first, with a **Today** button that resets a marker after you confirm. Inventory collections open as a table on the Mac and iPad, and as cards on iPhone; double-click a row to edit it. Editing forms use persistent labels, outlined inputs, and a visible focus ring. The dashboard and Mac sidebar keep their existing layout.
+
+Borrowing & Lending also includes a **Money** section. Add dated entries per person: positive amounts mean they owe you, negative amounts mean you owe them. Enter repayments with the opposite sign to keep the full history. Balances use exact cents and show what you are owed, what you owe, and the net total. Expand a person’s entries to edit or delete a mistake; use the copy or share button for an itemized summary. **Import list** accepts `5/9 - Farmer’s Market - +24.30` lines, lets you choose the person and year, then previews the recalculated total before saving. Standalone pasted totals are ignored. Money entries sync with the shared household, like other Life records.
+
+Use **Record payment** on a person’s money card for a partial or full payment. The form starts with the full outstanding amount and previews the remaining balance. Settled people automatically disappear from the money list; **Show settled people** reveals their history. A new charge for that person automatically brings them back.
+
+**Things To Pay** appears in the Mac Life Management sidebar and under Life on iPhone/iPad. Track tuition, HOA fees, lessons, or other one-off payments with a description, dollar amount, due date, and optional notes. Entries are grouped into Overdue, Due today, Next 7 days, and Later, with outstanding and upcoming totals. Mark a payment paid to hide it from the active list; **Show paid** reveals history and lets you mark it unpaid again. Each entry is independent, so amounts can vary. These records sync with the shared household.
+
+
+### Recurring bills and pay periods
+
+In **Life Management → Things To Pay → Recurring bills & pay periods**, keep repeating bills separate from the one-off payment checklist. Recurring bills are assumed paid and have no paid/unpaid status. Add or edit a fixed amount, first occurrence, and monthly or yearly interval. Fixed dates skip months without that day, matching calendar recurrence behavior.
+
+The payday anchor starts at **Friday, November 27, 2026**, repeating every 14 days. Choose another Friday to change it for the household. Each period includes payday Friday through the Thursday before the next payday. Previous/Next browse periods. The budget shows recurring occurrences, unpaid one-off bills due within the period, and their combined total; it does not include earlier overdue one-off bills or paid one-off bills.
+
+To export from Google Calendar on a computer:
+
+1. Open Google Calendar, click the settings gear, and choose **Settings**.
+2. Choose **Import & export → Export**.
+3. Unzip the downloaded file and find the `.ics` for the bills calendar.
+4. In HouseHippo, choose **Import calendar → Choose .ics file**.
+5. Review the bills, deselect anything unwanted, enter or confirm each dollar amount, and import.
+
+The import supports fixed-date monthly/yearly series, intervals, end dates/counts, and excluded dates. It preserves titles and descriptions, and proposes an amount only when it finds one unambiguous dollar-prefixed value. Amounts are required before import. Unsupported patterns and series with edited individual occurrences are listed for manual review rather than estimated. Reimporting skips previously imported calendar identities, including deleted bills; it does not update existing bills. This is a file import, not a live Google Calendar connection. Bills and payday settings use the shared household store.
+
+Google’s export instructions: <https://support.google.com/calendar/answer/37111?hl=en>.
+
+Focused validation: `python3 Tests/check_recurring_bills.py`.
+
+
+### Pay-period budgets and paycheck estimates
+
+In **Recurring bills & pay periods**, **Edit budget & paychecks** recreates the supplied Numbers budget: **Income − bills − additional debt − investments − savings − carryover = free spending**. Bills are calculated automatically from recurring occurrences and unpaid one-off bills due in the selected period. Carryover is an amount set aside (subtracted), matching the sheet; enter a negative amount to release money. The next period includes it in income when **Include previous period’s carryover in income** is enabled (on by default). This matches the sheet’s earlier rollovers; disable it to match the latest rows, which omit the prior-period reference. Debt, investments, savings, carryover, notes, and income entries are saved independently for each period in the shared household store. New periods start with the sheet’s $25 investment allocation, editable to any amount.
+
+Add any number of actual paychecks or other income entries. Alternatively, add Dan or Sage to estimate take-home pay from **hours × hourly rate × take-home percentage**. The editable starting assumptions from the Numbers calculator are Dan: $46.88/hour and 89.574445%; Sage: $50.98/hour and 82.402603%. Hours and actual amounts start blank rather than carrying historical pay into a new period. An actual paycheck can also store hours as a reference. Estimates use a fixed take-home percentage; they do not calculate payroll taxes. Replace estimates with actual take-home amounts when known. Totals sum unrounded estimates before rounding to cents, matching Numbers (so displayed paycheck lines can differ from the total by a cent). Missing income leaves income and free spending unavailable; an explicitly entered zero is valid. Historical rows from the spreadsheet are not automatically imported.
+
+
+Recurring bills are scoped to **November 1, 2026 through October 31, 2027** (the next November 1 is excluded). Import skips supported series with no occurrences in that window, respecting start dates, end dates, repeat counts, and excluded dates. Previously saved inactive series are automatically omitted from the active list and pay-period totals. They remain archived in storage for duplicate protection; this does not permanently delete records. A series that began years ago remains included if it still has an occurrence in the budget year.
+
+
+Calendar file reading and parsing run on a cancellable background task, with a progress indicator and a 25 MB file limit. Large previews show 50 bills/messages per page. Saving uses a private Core Data context, checks calendar identities again, commits the selected bills in one transaction, and refreshes the UI once. Recurrence lookup jumps to the requested month for unlimited series and caches displayed pay-period occurrences instead of recalculating on every form update. Finance sheets use grouped, scrollable forms with explicit Mac sizes; input placeholders stay inside the fields, and sheet buttons remain visible while scrolling.

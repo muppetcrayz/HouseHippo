@@ -410,6 +410,99 @@ import CryptoKit
         try put(encoder.encode(item), key: key)
     }
 
+    func moneyEntries() throws -> [MoneyEntry] {
+        MoneyEntry.ordered(try waitingValues(MoneyEntry.self, prefix: "borrowing.money.").filter { $0.deletedAt == nil })
+    }
+    func saveMoneyEntry(_ entry: MoneyEntry) throws {
+        let key = "borrowing.money." + entry.id.uuidString
+        if let data = try read(key), try JSONDecoder().decode(MoneyEntry.self, from: data).deletedAt != nil {
+            throw NSError(domain: "HouseHippo", code: 8, userInfo: [NSLocalizedDescriptionKey: "This money entry was deleted."])
+        }
+        let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
+        try put(encoder.encode(entry), key: key)
+    }
+
+    func paymentsDue() throws -> [PaymentDue] {
+        try waitingValues(PaymentDue.self, prefix: "payment.due.").filter { $0.deletedAt == nil }.sorted {
+            if $0.day != $1.day { return $0.day < $1.day }
+            return $0.id.uuidString < $1.id.uuidString
+        }
+    }
+    func savePaymentDue(_ payment: PaymentDue) throws {
+        let key = "payment.due." + payment.id.uuidString
+        if let data = try read(key), try JSONDecoder().decode(PaymentDue.self, from: data).deletedAt != nil {
+            throw NSError(domain: "HouseHippo", code: 10, userInfo: [NSLocalizedDescriptionKey: "This payment was deleted."])
+        }
+        let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
+        try put(encoder.encode(payment), key: key)
+    }
+
+    func recurringBills(includeDeleted: Bool = false) throws -> [RecurringBill] {
+        try waitingValues(RecurringBill.self, prefix: "payment.recurring.").filter { includeDeleted || ($0.deletedAt == nil && $0.isActiveInBudgetYear) }.sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
+    }
+    func saveRecurringBill(_ bill: RecurringBill) throws {
+        let key = "payment.recurring." + bill.id.uuidString
+        if let data = try read(key), try JSONDecoder().decode(RecurringBill.self, from: data).deletedAt != nil {
+            throw NSError(domain: "HouseHippo", code: 10, userInfo: [NSLocalizedDescriptionKey: "This recurring bill was deleted."])
+        }
+        try put(JSONEncoder().encode(bill), key: key)
+    }
+    /// Save an import on Core Data's private queue as one transaction and one UI refresh.
+    func importRecurringBills(_ bills: [RecurringBill]) async throws -> Int {
+        if let loadError { throw loadError }
+        guard !bills.isEmpty else { return 0 }
+        let home = try root()
+        if context.hasChanges { try context.save() }
+        let homeID = home.objectID
+        let background = container.newBackgroundContext()
+        background.transactionAuthor = "HouseHippo"
+        let inserted: [NSManagedObjectID] = try await background.perform {
+            do {
+                let request = NSFetchRequest<NSManagedObject>(entityName: "HHEntry")
+                request.predicate = NSPredicate(format: "key BEGINSWITH %@", "payment.recurring.")
+                let existing = try background.fetch(request)
+                var known = Set<String>()
+                for row in existing {
+                    guard let data = row.value(forKey: "data") as? Data else { continue }
+                    if let uid = try JSONDecoder().decode(RecurringBill.self, from: data).sourceUID { known.insert(uid) }
+                }
+                let home = try background.existingObject(with: homeID)
+                let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
+                var rows: [NSManagedObject] = []
+                for bill in bills {
+                    guard let uid = bill.sourceUID, !uid.isEmpty, bill.cents > 0, bill.deletedAt == nil else { throw CocoaError(.validationMissingMandatoryProperty) }
+                    guard known.insert(uid).inserted else { continue }
+                    let row = NSEntityDescription.insertNewObject(forEntityName: "HHEntry", into: background)
+                    background.assign(row, to: home.objectID.persistentStore!)
+                    row.setValue(home, forKey: "household")
+                    row.setValue("payment.recurring." + bill.id.uuidString, forKey: "key")
+                    row.setValue(try encoder.encode(bill), forKey: "data")
+                    row.setValue(Date(), forKey: "modifiedAt")
+                    rows.append(row)
+                }
+                if background.hasChanges { try background.save() }
+                return rows.map(\.objectID)
+            } catch { background.rollback(); throw error }
+        }
+        if !inserted.isEmpty {
+            NSManagedObjectContext.mergeChanges(fromRemoteContextSave: [NSInsertedObjectsKey: inserted], into: [context])
+            revision += 1
+        }
+        return inserted.count
+    }
+
+    func paydayAnchor() throws -> String? {
+        try read("payment.payday").map { try JSONDecoder().decode(String.self, from: $0) }
+    }
+    func savePaydayAnchor(_ day: String) throws { try put(JSONEncoder().encode(day), key: "payment.payday") }
+
+    func payPeriodBudget(startDay: String) throws -> PayPeriodBudget? {
+        try read("payment.budget." + startDay).map { try JSONDecoder().decode(PayPeriodBudget.self, from: $0) }
+    }
+    func savePayPeriodBudget(_ budget: PayPeriodBudget) throws {
+        try put(JSONEncoder().encode(budget), key: "payment.budget." + budget.startDay)
+    }
+
     func lastTimeEntries() throws -> [LastTimeEntry] {
         try waitingValues(LastTimeEntry.self, prefix: "lasttime.entry.").filter { $0.deletedAt == nil }.sorted {
             let order = $0.title.localizedStandardCompare($1.title)

@@ -1049,7 +1049,7 @@ struct TaskList: View {
     private func details(_ task: Reminder) -> String {
         var parts = [task.summary, task.list]
         if task.isNotification && !task.enabled { parts.append("Paused") }
-        if completedScope, let done = task.lastCompleted { parts.append("Done " + done.formatted(date: .omitted, time: .shortened)) }
+        if let done = task.lastCompleted { parts.append("Last done " + done.formatted(date: .abbreviated, time: .omitted)) }
         return parts.filter { !$0.isEmpty }.joined(separator: " · ")
     }
 }

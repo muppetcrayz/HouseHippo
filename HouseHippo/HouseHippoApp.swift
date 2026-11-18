@@ -800,10 +800,7 @@ struct HouseHippoHome: View {
             TaskList(scope: .constant("Active"), mode: .notifications).tabItem { Label("Notifications", systemImage: "bell") }.tag(0)
             TaskList(scope: $taskScope, completedTasksRequest: completedTasksRequest, mode: .tasks).tabItem { Label("Tasks", systemImage: "checklist") }.tag(1)
             HomeDashboard(navigate: { selectedTab = $0 }, showCompletedTasks: showCompletedTasks).tabItem { Label("Dashboard", systemImage: "house") }.tag(2)
-            NavigationStack { WaitingForView() }.tabItem { Label("Waiting For", systemImage: "clock") }.tag(6)
-            NavigationStack { BorrowingLendingView() }.tabItem { Label("Borrowing & Lending", systemImage: "arrow.left.arrow.right") }.tag(7)
-            NavigationStack { LastTimeView() }.tabItem { Label("Last Time", systemImage: "calendar.badge.clock") }.tag(8)
-            InventoryView().tabItem { Label("Inventory", systemImage: "archivebox") }.tag(9)
+            LifeHubView().tabItem { Label("Life", systemImage: "square.grid.2x2") }.tag(6)
             MealsView().tabItem { Label("Meals", systemImage: "fork.knife") }.tag(5)
         }
             #endif
@@ -821,10 +818,9 @@ struct HouseHippoHome: View {
 
 }
 
-enum TaskMode { case dashboard, tasks, notifications }
+enum TaskMode { case tasks, notifications }
 struct TaskList: View {
     @EnvironmentObject private var store: ReminderStore
-    @AppStorage("househippo.person") private var person = Reminder.Owner.me.rawValue
     @AppStorage("househippo.tasks.ownerFilter") private var ownerFilter = "All"
     @State private var search = ""
     @State private var editing: Reminder?
@@ -833,98 +829,69 @@ struct TaskList: View {
     var completedTasksRequest = 0
     @State private var confirmExport = false
     @State private var importing = false
-    @State private var dashboardNow = Date()
+    @State private var now = Date()
     let mode: TaskMode
+    private var completedScope: Bool { scope == "Completed" }
     private var filtered: [Reminder] {
         store.reminders.filter { task in
-            let visible = mode != .dashboard || task.owner == .shared || task.owner.rawValue == person
             let matchesOwner = mode != .tasks || (Reminder.Owner(rawValue: ownerFilter).map { task.owner == $0 } ?? true)
             let relevant = mode == .notifications ? task.isNotification : !task.isNotification
             let matches = search.isEmpty || (task.title + " " + task.list).localizedCaseInsensitiveContains(search)
-            return visible && matchesOwner && relevant && matches && (mode != .dashboard || task.isDueToday(at: dashboardNow) || task.isAvailableFlexible(at: dashboardNow)) && (scope == "Completed" ? (task.wasCompletedToday(at: dashboardNow) || task.isDelayed(at: dashboardNow)) : !task.completed)
+            let inScope = completedScope ? (task.wasCompletedToday(at: now) || task.isDelayed(at: now)) : !task.completed
+            return matchesOwner && relevant && matches && inScope
         }
     }
     var body: some View {
-        let filtered = mode == .dashboard ? self.filtered.sorted(by: Reminder.dashboardOrderedBefore) : self.filtered
+        let tasks = filtered
         return NavigationStack {
-            List {
-                if mode == .dashboard {
-                    Section {
-                        Text("A little more room for home.").font(.title2.bold())
-                        Picker("Viewing as", selection: $person) { Text(Reminder.Owner.me.displayName).tag(Reminder.Owner.me.rawValue); Text(Reminder.Owner.husband.displayName).tag(Reminder.Owner.husband.rawValue) }
-                        Text("Shared tasks and your own tasks appear here.").font(.caption).foregroundStyle(.secondary)
-                        CloudStatusView()
-                    }
-                }
-                if mode == .notifications {
-                    Section("Delivery") {
-                        #if os(iOS)
-                        switch store.status {
-                        case .notDetermined:
-                            Button("Allow notifications") { Task { await store.requestPermission() } }
-                        case .authorized:
-                            Label("Notifications allowed", systemImage: "checkmark.circle")
-                        case .provisional, .ephemeral:
-                            Text("Notifications are allowed quietly or temporarily. Review delivery settings for banners and sounds.")
-                            Link("Open notification settings", destination: URL(string: UIApplication.openNotificationSettingsURLString)!)
-                        case .denied:
-                            Text("Notifications are disabled for HouseHippo on this iPhone.")
-                            Link("Open notification settings", destination: URL(string: UIApplication.openNotificationSettingsURLString)!)
-                        @unknown default:
-                            Text("Review HouseHippo notification permissions in Settings.")
-                        }
-                        #endif
-                        if let coverage = store.coverage { Text("Open the app before \(coverage.formatted(date: .abbreviated, time: .shortened)) to refresh notification coverage.").font(.caption) }
-                    }
-                }
-                if mode == .tasks {
-                    Section {
+            HippoCanvas {
+                HippoPageHeader(title: mode == .tasks ? "Tasks" : "Notifications", summary: summary(tasks)) {
+                    if mode == .tasks {
                         Picker("For", selection: $ownerFilter) {
                             Text("Everyone").tag("All")
                             ForEach(Reminder.Owner.allCases, id: \.self) { Text($0.displayName).tag($0.rawValue) }
-                        }
-                        Picker("Show", selection: $scope) { Text("Active").tag("Active"); Text("Completed / delayed").tag("Completed") }.pickerStyle(.segmented)
+                        }.pickerStyle(.segmented).labelsHidden().fixedSize()
+                        Picker("Show", selection: $scope) { Text("Active").tag("Active"); Text("Done & delayed").tag("Completed") }
+                            .pickerStyle(.segmented).labelsHidden().fixedSize()
                     }
                 }
-                if filtered.isEmpty {
-                    Section {
-                        HippoEmptyState(title: mode == .notifications ? "No notifications yet" : mode == .dashboard ? "Nothing due today" : scope == "Completed" ? "Nothing completed or delayed" : "All clear", icon: mode == .notifications ? "bell" : "checkmark.circle", message: mode == .notifications ? "Add a notification to schedule an alert. Tasks and reminders stay silent." : mode == .dashboard ? "Your other reminders are in Tasks." : scope == "Completed" ? "Tasks completed today and delayed tasks appear here so you can bring them back." : "Add a task or import your Apple Reminders.")
-                        if mode != .notifications && (mode != .dashboard || !store.reminders.contains(where: { !$0.isNotification })) {
-                            Button("Import Apple Reminders…", systemImage: "square.and.arrow.down") { importing = true }
-                        }
-                    }
-                }
-                if mode == .dashboard {
-                    taskSection("Today's Tasks", tasks: filtered.filter { !$0.isFlexibleTask || $0.deferredUntil != nil }, random: true, todayRandom: true)
-                    taskSection("Flexible Tasks", tasks: filtered.filter { $0.isFlexibleTask && $0.deferredUntil == nil }, random: true)
-                } else if mode == .tasks {
-                    if scope == "Completed" {
-                        taskSection("Completed today", tasks: filtered.filter { $0.wasCompletedToday(at: dashboardNow) && !$0.isDelayed(at: dashboardNow) })
-                        taskSection("Delayed tasks", tasks: filtered.filter { $0.isDelayed(at: dashboardNow) })
-                    } else {
-                        taskSection("Scheduled tasks", tasks: filtered.filter { !$0.isFlexibleTask })
-                        taskSection("Flexible tasks", tasks: filtered.filter { $0.isFlexibleTask })
+                if mode == .notifications { deliveryCard }
+                if tasks.isEmpty { emptyState }
+                else if mode == .notifications {
+                    VStack(alignment: .leading, spacing: 12) {
+                        HippoSectionHeader("Your notifications", icon: "bell", count: tasks.count)
+                        HippoGrid { ForEach(tasks) { card($0, accent: .teal) } }
                     }
                 } else {
-                    taskSection("Your notifications", tasks: filtered)
+                    HippoGrid(minimum: 380, spacing: 28) {
+                        if completedScope {
+                            board("Done today", icon: "checkmark.circle", accent: .green, groups: [("", tasks.filter { $0.wasCompletedToday(at: now) && !$0.isDelayed(at: now) })])
+                            board("Delayed", icon: "calendar.badge.clock", accent: .orange, groups: [("", tasks.filter { $0.isDelayed(at: now) })])
+                        } else {
+                            board("Scheduled", icon: "calendar", accent: .teal, groups: scheduledGroups(tasks.filter { !$0.isFlexibleTask }))
+                            let flexible = tasks.filter(\.isFlexibleTask).sorted(by: Reminder.dashboardOrderedBefore)
+                            board("Flexible", icon: "leaf", accent: .orange, groups: [
+                                ("Ready any time", flexible.filter { $0.isAvailableFlexible(at: now) }),
+                                ("Resting", flexible.filter { !$0.isAvailableFlexible(at: now) })
+                            ], random: flexible.filter { $0.isAvailableFlexible(at: now) })
+                        }
+                    }
                 }
             }
-            .hippoPage(enabled: mode != .dashboard)
-            .navigationTitle(mode == .dashboard ? "HouseHippo" : mode == .tasks ? "Tasks" : "Notifications")
+            .hippoCanvasPage(mode == .tasks ? "Tasks" : "Notifications")
             .searchable(text: $search, prompt: "Search tasks and lists")
-            .onAppear { dashboardNow = Date() }
+            .onAppear { now = Date() }
             .onChange(of: completedTasksRequest) { _, _ in
                 search = ""
-                dashboardNow = Date()
+                now = Date()
             }
-            .onReceive(Timer.publish(every: 60, on: .main, in: .common).autoconnect()) { date in
-                dashboardNow = date
-            }
+            .onReceive(Timer.publish(every: 60, on: .main, in: .common).autoconnect()) { now = $0 }
             .toolbar {
                 ToolbarItem(placement: .primaryAction) { Button(mode == .notifications ? "Add notification" : "Add task", systemImage: "plus") {
                     var item = Reminder(title: "", message: "", date: Date().addingTimeInterval(3600), frequency: .once)
                     item.kind = mode == .notifications ? .notification : .task
                     item.allDay = mode != .notifications
+                    if mode == .tasks, let owner = Reminder.Owner(rawValue: ownerFilter) { item.owner = owner }
                     editing = item
                 } }
                 if mode != .notifications {
@@ -944,64 +911,146 @@ struct TaskList: View {
             } message: { Text("Each export creates new lists and copies. Flexible and custom schedules are saved in notes and need to be configured in Reminders.") }
         }
     }
-    @ViewBuilder private func taskSection(_ title: String, tasks: [Reminder], random: Bool = false, todayRandom: Bool = false) -> some View {
-        if !tasks.isEmpty || random {
-            Section(title) {
-                if random {
-                    Button("Pick a random task", systemImage: "dice") {
-                        randomPick = tasks.filter { !todayRandom || $0.isEligibleForTodayRandom() }.randomElement()
-                    }
-                        .disabled(!tasks.contains { !todayRandom || $0.isEligibleForTodayRandom(at: dashboardNow) })
+    private func summary(_ tasks: [Reminder]) -> Text {
+        if mode == .notifications {
+            let paused = tasks.filter { !$0.enabled }.count
+            return Text("\(tasks.count) scheduled") + Text(paused > 0 ? " · \(paused) paused" : "")
+        }
+        if completedScope {
+            let delayed = tasks.filter { $0.isDelayed(at: now) }.count
+            return Text("\(tasks.count - delayed) done today · \(delayed) delayed")
+        }
+        let overdue = tasks.filter { $0.isOverdue(at: now) }.count
+        return Text("\(tasks.count) active") + (overdue > 0 ? Text(" · ") + Text("\(overdue) overdue").foregroundStyle(.red).bold() : Text(""))
+    }
+    /// Scheduled tasks grouped by when they're next due, so a long list is easy to scan.
+    private func scheduledGroups(_ tasks: [Reminder]) -> [(String, [Reminder])] {
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: now)
+        let tomorrow = calendar.date(byAdding: .day, value: 1, to: today)!
+        let nextWeek = calendar.date(byAdding: .day, value: 7, to: today)!
+        let sorted = tasks.sorted(by: Reminder.dashboardOrderedBefore)
+        let overdue = sorted.filter { $0.isOverdue(at: now) }
+        let rest = sorted.filter { !$0.isOverdue(at: now) }
+        let dueToday = rest.filter { $0.isDueToday(at: now) }
+        let upcoming = rest.filter { !$0.isDueToday(at: now) }.sorted { $0.effectiveDate < $1.effectiveDate }
+        return [
+            ("Overdue", overdue),
+            ("Today", dueToday),
+            ("Tomorrow", upcoming.filter { calendar.isDate($0.effectiveDate, inSameDayAs: tomorrow) }),
+            ("This week", upcoming.filter { $0.effectiveDate >= calendar.date(byAdding: .day, value: 1, to: tomorrow)! && $0.effectiveDate < nextWeek }),
+            ("Later", upcoming.filter { $0.effectiveDate >= nextWeek || $0.effectiveDate < tomorrow })
+        ]
+    }
+    private func board(_ title: String, icon: String, accent: Color, groups: [(String, [Reminder])], random: [Reminder]? = nil) -> some View {
+        let count = groups.reduce(0) { $0 + $1.1.count }
+        return VStack(alignment: .leading, spacing: 8) {
+            HippoSectionHeader(title: title, icon: icon, count: count, accent: accent) {
+                if let random {
+                    Button("Random pick", systemImage: "dice") { randomPick = random.randomElement() }
+                        .buttonStyle(.bordered).disabled(random.isEmpty)
                         .accessibilityLabel("Pick a random task from " + title)
-                    if tasks.isEmpty { Text("No tasks ready in this list.").foregroundStyle(.secondary) }
                 }
-                ForEach(tasks) { task in
-                    HStack(spacing: 0) {
-                        if task.isNotification {
-                            Button { Task { await store.toggle(task) } } label: { Image(systemName: task.enabled ? "bell.fill" : "bell.slash").font(.title2).frame(width: 44).frame(maxHeight: .infinity).contentShape(Rectangle()) }.buttonStyle(.borderless)
-                                .accessibilityLabel(task.enabled ? "Pause notification" : "Resume notification")
-                        } else {
-                            Button { Task {
-                                if scope == "Completed" && task.isDelayed(at: dashboardNow) { await store.moveBackToToday(task) }
-                                else if scope == "Completed" { await store.undoCompletion(task) }
-                                else { await store.complete(task) }
-                            } } label: { Image(systemName: scope == "Completed" ? (task.isDelayed(at: dashboardNow) ? "arrow.uturn.backward.circle" : "checkmark.circle.fill") : "circle").font(.title2).frame(width: 44).frame(maxHeight: .infinity).contentShape(Rectangle()) }
-                                .buttonStyle(.borderless)
-                                .accessibilityLabel(scope == "Completed" ? (task.isDelayed(at: dashboardNow) ? "Move back to today" : "Undo completion") : "Mark done")
-                        }
-                        Button { editing = task } label: {
-                            VStack(alignment: .leading, spacing: 3) {
-                                Text(task.title).font(.headline).foregroundStyle(.primary)
-                                Text(task.summary).font(.caption).foregroundStyle(task.isOverdue() ? .red : .secondary)
-                                Text("\(task.list) · \(task.owner.displayName)" + (task.isNotification && !task.enabled ? " · Paused" : "") + (task.lastCompleted.map { " · Last done " + $0.formatted(date: .abbreviated, time: .omitted) } ?? ""))
-                                    .font(.caption).foregroundStyle(.secondary).lineLimit(2)
-                            }
-                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-                            .padding(.vertical, 8)
-                            .padding(.leading, 8)
-                            .padding(.trailing, 16)
-                            .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    }
-                    .listRowInsets(EdgeInsets(top: 0, leading: 8, bottom: 0, trailing: 0))
-                    .contextMenu {
-                        if task.isNotification {
-                            Button(task.enabled ? "Pause notification" : "Resume notification") { Task { await store.toggle(task) } }
-                        }
-                        if task.isDelayed(at: dashboardNow) {
-                            Button("Move back to today", systemImage: "arrow.uturn.backward") { Task { await store.moveBackToToday(task) } }
-                        }
-                        if task.canMoveToTomorrow && scope != "Completed" {
-                            Button("Move to tomorrow", systemImage: "calendar.badge.clock") { Task { await store.moveToTomorrow(task) } }
-                        }
-                        Button("Delete", role: .destructive) { Task { await store.delete(task) } }
-                    }
-                    .swipeActions { Button("Delete", role: .destructive) { Task { await store.delete(task) } } }
+            }.padding(.bottom, 4)
+            if count == 0 {
+                HippoNotice(text: search.isEmpty ? "Nothing here right now." : "No matching tasks.", accent: accent)
+            }
+            ForEach(groups.filter { !$0.1.isEmpty }, id: \.0) { group in
+                if !group.0.isEmpty {
+                    HippoGroupLabel(group.0, color: group.0 == "Overdue" ? .red : group.0 == "Today" ? accent : .secondary)
+                }
+                HippoGrid(minimum: 300, spacing: 8) {
+                    ForEach(group.1) { card($0, accent: accent, resting: group.0 == "Resting") }
                 }
             }
         }
+    }
+    private var emptyState: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HippoEmptyState(title: mode == .notifications ? "No notifications yet" : completedScope ? "Nothing done or delayed" : "All clear", icon: mode == .notifications ? "bell" : "checkmark.circle", message: mode == .notifications ? "Add a notification to schedule an alert. Tasks and reminders stay silent." : completedScope ? "Tasks completed today and delayed tasks appear here so you can bring them back." : search.isEmpty ? "Add a task or import your Apple Reminders." : "No tasks match your search.")
+            if mode == .tasks && !store.reminders.contains(where: { !$0.isNotification }) {
+                Button("Import Apple Reminders…", systemImage: "square.and.arrow.down") { importing = true }.padding(.bottom, 12)
+            }
+        }.padding(.horizontal, 16).padding(.vertical, 4).hippoCard()
+    }
+    @ViewBuilder private var deliveryCard: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Label("Delivery", systemImage: "bell.badge").font(.headline)
+            #if os(iOS)
+            switch store.status {
+            case .notDetermined:
+                Button("Allow notifications") { Task { await store.requestPermission() } }.buttonStyle(.borderedProminent)
+            case .authorized:
+                Label("Notifications allowed", systemImage: "checkmark.circle").foregroundStyle(.green)
+            case .provisional, .ephemeral:
+                Text("Notifications are allowed quietly or temporarily. Review delivery settings for banners and sounds.").font(.callout)
+                Link("Open notification settings", destination: URL(string: UIApplication.openNotificationSettingsURLString)!)
+            case .denied:
+                Text("Notifications are disabled for HouseHippo on this iPhone.").font(.callout)
+                Link("Open notification settings", destination: URL(string: UIApplication.openNotificationSettingsURLString)!)
+            @unknown default:
+                Text("Review HouseHippo notification permissions in Settings.").font(.callout)
+            }
+            #endif
+            if let coverage = store.coverage { Text("Open the app before \(coverage.formatted(date: .abbreviated, time: .shortened)) to refresh notification coverage.").font(.caption).foregroundStyle(.secondary) }
+        }.frame(maxWidth: .infinity, alignment: .leading).padding(16).hippoCard()
+    }
+    private func card(_ task: Reminder, accent: Color, resting: Bool = false) -> some View {
+        let overdue = !completedScope && task.isOverdue(at: now)
+        let delayed = task.isDelayed(at: now)
+        let tint: Color = overdue ? .red : resting ? .secondary : accent
+        return HStack(spacing: 0) {
+            Group {
+                if task.isNotification {
+                    Button { Task { await store.toggle(task) } } label: {
+                        Image(systemName: task.enabled ? "bell.fill" : "bell.slash").font(.title3)
+                    }.accessibilityLabel(task.enabled ? "Pause notification" : "Resume notification")
+                } else {
+                    Button { Task {
+                        if completedScope && delayed { await store.moveBackToToday(task) }
+                        else if completedScope { await store.undoCompletion(task) }
+                        else { await store.complete(task) }
+                    } } label: {
+                        Image(systemName: completedScope ? (delayed ? "arrow.uturn.backward.circle" : "checkmark.circle.fill") : "circle").font(.title2)
+                    }.accessibilityLabel(completedScope ? (delayed ? "Move \(task.title) back to today" : "Undo completion of \(task.title)") : "Mark \(task.title) done")
+                }
+            }
+            .buttonStyle(.plain).foregroundStyle(tint)
+            .frame(width: 44).frame(maxHeight: .infinity).contentShape(Rectangle())
+            Button { editing = task } label: {
+                HStack(spacing: 8) {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(task.title).font(.headline).foregroundStyle(overdue ? .red : .primary).lineLimit(2)
+                        Text(details(task)).font(.caption).foregroundStyle(overdue ? .red : .secondary).lineLimit(2)
+                    }
+                    Spacer(minLength: 4)
+                    Text(task.owner.displayName).font(.caption2).foregroundStyle(.secondary)
+                        .padding(.horizontal, 8).padding(.vertical, 3).background(Color.primary.opacity(0.06), in: Capsule())
+                }
+                .frame(maxWidth: .infinity, minHeight: 58, alignment: .leading)
+                .padding(.vertical, 8).padding(.trailing, 12).contentShape(Rectangle())
+            }.buttonStyle(.plain)
+        }
+        .hippoCard(border: overdue ? Color.red.opacity(0.4) : Color.primary.opacity(0.08))
+        .opacity(resting ? 0.75 : 1)
+        .contextMenu {
+            if task.isNotification {
+                Button(task.enabled ? "Pause notification" : "Resume notification") { Task { await store.toggle(task) } }
+            }
+            if delayed {
+                Button("Move back to today", systemImage: "arrow.uturn.backward") { Task { await store.moveBackToToday(task) } }
+            }
+            if task.canMoveToTomorrow && !completedScope {
+                Button("Move to tomorrow", systemImage: "calendar.badge.clock") { Task { await store.moveToTomorrow(task) } }
+            }
+            Button("Delete", role: .destructive) { Task { await store.delete(task) } }
+        }
+    }
+    private func details(_ task: Reminder) -> String {
+        var parts = [task.summary, task.list]
+        if task.isNotification && !task.enabled { parts.append("Paused") }
+        if completedScope, let done = task.lastCompleted { parts.append("Done " + done.formatted(date: .omitted, time: .shortened)) }
+        return parts.filter { !$0.isEmpty }.joined(separator: " · ")
     }
 }
 
@@ -1194,114 +1243,148 @@ private extension UTType {
 }
 
 struct MealsView: View {
+    var body: some View { NavigationStack { MealsPage() } }
+}
+
+private struct MealsPage: View {
     @ObservedObject private var cloud = CloudStore.shared
+    #if os(iOS)
+    @Environment(\.horizontalSizeClass) private var sizeClass
+    #endif
     @State private var dinners = Array(repeating: "", count: 7)
     @State private var targetedDay: Int?
     @State private var week = MealWeek.start(containing: Date())
+    @State private var now = Date()
     private var currentDinners: [String] {
         (0..<7).map { day in
             let date = Calendar.current.date(byAdding: .day, value: day, to: week)!
             return (try? cloud.read(MealWeek.storageKey(for: date))).flatMap { String(data: $0, encoding: .utf8) } ?? ""
         }
     }
+    private var compact: Bool {
+        #if os(iOS)
+        sizeClass == .compact
+        #else
+        false
+        #endif
+    }
+    /// Position of today in the shown week, so the iPhone strip starts at tonight's dinner.
+    private var todayIndex: Int? {
+        (0..<7).first { Calendar.current.isDate(Calendar.current.date(byAdding: .day, value: $0, to: week)!, inSameDayAs: Date()) }
+    }
+    private var weekLabel: String {
+        let end = Calendar.current.date(byAdding: .day, value: 6, to: week)!
+        return week.formatted(.dateTime.month(.abbreviated).day()) + " – " + end.formatted(.dateTime.month(.abbreviated).day())
+    }
     var body: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(spacing: 12) {
-                    HStack {
-                        Button { moveWeek(-1) } label: {
-                            Label("Previous week", systemImage: "chevron.left")
-                                .frame(minWidth: 44, minHeight: 44)
-                        }
-                        Spacer()
-                        Text("Week of \(week.formatted(date: .abbreviated, time: .omitted))")
-                        Spacer()
-                        Button { moveWeek(1) } label: {
-                            Label("Next week", systemImage: "chevron.right")
-                                .frame(minWidth: 44, minHeight: 44)
-                        }
-                    }
-                    .buttonStyle(.borderless)
-                    #if os(iOS)
-                    .labelStyle(.iconOnly)
-                    #endif
-                    GroupBox("Dinner") {
-                        VStack(spacing: 0) {
-                            ForEach(0..<7, id: \.self) { day in
-                                HStack {
-                                    Image(systemName: "line.3.horizontal")
-                                        .foregroundStyle(.secondary)
-                                        .frame(width: 44, height: 44)
-                                        .contentShape(Rectangle())
-                                        .accessibilityLabel("Drag to swap dinner")
-                                        .help("Drag to another day to swap dinners")
-                                        .onDrag {
-                                            let provider = NSItemProvider()
-                                            let payload = MealDayDrag(day: day, week: week)
-                                            provider.registerDataRepresentation(forTypeIdentifier: UTType.houseHippoMealDay.identifier, visibility: .all) { completion in
-                                                do { completion(try JSONEncoder().encode(payload), nil) }
-                                                catch { completion(nil, error) }
-                                                return nil
-                                            }
-                                            return provider
-                                        }
-                                    Text(Calendar.current.date(byAdding: .day, value: day, to: week)!.formatted(.dateTime.weekday(.abbreviated))).frame(width: 45)
-                                    TextField("Add dinner…", text: $dinners[day])
-                                        .textFieldStyle(.plain)
-                                        .padding(10).frame(minHeight: 44)
-                                        .background(.background, in: RoundedRectangle(cornerRadius: 8))
-                                        .overlay { RoundedRectangle(cornerRadius: 8).strokeBorder(Color.secondary.opacity(0.4)) }
-                                        .accessibilityLabel("Dinner for " + Calendar.current.date(byAdding: .day, value: day, to: week)!.formatted(date: .complete, time: .omitted))
-                                }
-                                .padding(.vertical, 3)
-                                .background(targetedDay == day ? Color.accentColor.opacity(0.15) : Color.clear)
-                                .clipShape(RoundedRectangle(cornerRadius: 8))
-                                .contentShape(Rectangle())
-                                .onDrop(of: [UTType.houseHippoMealDay], isTargeted: Binding(
-                                    get: { targetedDay == day },
-                                    set: { targeted in
-                                        if targeted { targetedDay = day }
-                                        else if targetedDay == day { targetedDay = nil }
-                                    }
-                                )) { providers in
-                                    guard let provider = providers.first else { return false }
-                                    let destinationWeek = week
-                                    provider.loadDataRepresentation(forTypeIdentifier: UTType.houseHippoMealDay.identifier) { data, _ in
-                                        guard let data, let value = try? JSONDecoder().decode(MealDayDrag.self, from: data) else { return }
-                                        DispatchQueue.main.async {
-                                            guard week == destinationWeek else { return }
-                                            _ = swapDinner(value, onto: day)
-                                        }
-                                    }
-                                    return true
-                                }
-                            }
-                        }
-                    }
-                    GroupBox("Grocery list") { GroceryView() }
+        let planned = dinners.filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }.count
+        let groceries = ((try? cloud.groceries()) ?? []).filter { !$0.checked }.count
+        return HippoCanvas {
+            HippoPageHeader(title: "Meals", summary: Text("\(planned) of 7 dinners planned · \(groceries) " + (groceries == 1 ? "grocery" : "groceries") + " to get")) {
+                weekControls
+            }
+            VStack(alignment: .leading, spacing: 12) {
+                HippoSectionHeader(title: "Dinners", icon: "fork.knife") {
+                    if !compact { Text("Drag a day onto another to swap").font(.caption).foregroundStyle(.secondary) }
                 }
-                .padding(12)
-                .frame(maxWidth: 1000)
-                .frame(maxWidth: .infinity)
-            }.navigationTitle("Meals").hippoInlineTitle()
-            .onAppear {
-                do { try cloud.migrateMealDates(); dinners = currentDinners }
-                catch { cloud.report(error) }
-            }
-            .onChange(of: dinners) { old, value in
-                do {
-                    let stored = currentDinners
-                    for day in 0..<7 where old[day] != value[day] && stored[day] != value[day] {
-                        let date = Calendar.current.date(byAdding: .day, value: day, to: week)!
-                        try cloud.put(Data(value[day].utf8), key: MealWeek.storageKey(for: date))
+                if compact {
+                    ScrollViewReader { reader in
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 8) { ForEach(0..<7, id: \.self) { dayCard($0).frame(width: 132).id($0) } }
+                                .padding(.horizontal, 20)
+                        }
+                        .padding(.horizontal, -20)
+                        .onAppear { if let today = todayIndex { reader.scrollTo(today, anchor: .leading) } }
+                        .onChange(of: week) { _, _ in reader.scrollTo(todayIndex ?? 0, anchor: .leading) }
                     }
-                } catch { cloud.report(error) }
+                } else {
+                    HippoGrid(minimum: 132, spacing: 10) { ForEach(0..<7, id: \.self) { dayCard($0) } }
+                }
             }
-            .onChange(of: cloud.revision) { _, _ in
-                do { try cloud.migrateMealDates() } catch { cloud.report(error) }
-                let incoming = currentDinners
-                if dinners != incoming { dinners = incoming }
+            GroceryView()
+        }
+        .hippoCanvasPage("Meals")
+        .onAppear {
+            now = Date()
+            do { try cloud.migrateMealDates(); dinners = currentDinners }
+            catch { cloud.report(error) }
+        }
+        .onChange(of: dinners) { old, value in
+            do {
+                let stored = currentDinners
+                for day in 0..<7 where old[day] != value[day] && stored[day] != value[day] {
+                    let date = Calendar.current.date(byAdding: .day, value: day, to: week)!
+                    try cloud.put(Data(value[day].utf8), key: MealWeek.storageKey(for: date))
+                }
+            } catch { cloud.report(error) }
+        }
+        .onChange(of: cloud.revision) { _, _ in
+            do { try cloud.migrateMealDates() } catch { cloud.report(error) }
+            let incoming = currentDinners
+            if dinners != incoming { dinners = incoming }
+        }
+    }
+    private var weekControls: some View {
+        HStack(spacing: 8) {
+            Button { moveWeek(-1) } label: { Image(systemName: "chevron.left").frame(width: 28, height: 28) }
+                .buttonStyle(.bordered).accessibilityLabel("Previous week")
+            Text(weekLabel).font(.subheadline.weight(.semibold)).monospacedDigit().frame(minWidth: 110)
+            Button { moveWeek(1) } label: { Image(systemName: "chevron.right").frame(width: 28, height: 28) }
+                .buttonStyle(.bordered).accessibilityLabel("Next week")
+            if week != MealWeek.start(containing: Date()) {
+                Button("This week") { week = MealWeek.start(containing: Date()); dinners = currentDinners }.buttonStyle(.bordered)
             }
+        }
+    }
+    private func dayCard(_ day: Int) -> some View {
+        let date = Calendar.current.date(byAdding: .day, value: day, to: week)!
+        let isToday = Calendar.current.isDate(date, inSameDayAs: now)
+        return VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .firstTextBaseline, spacing: 5) {
+                Text(date.formatted(.dateTime.weekday(.abbreviated)).uppercased()).font(.caption2.weight(.bold)).tracking(0.6)
+                Text(date.formatted(.dateTime.day())).font(.system(.title3, design: .rounded).bold())
+                Spacer(minLength: 0)
+                if isToday { Text("Tonight").font(.caption2.weight(.semibold)) }
+                Image(systemName: "line.3.horizontal").font(.caption).foregroundStyle(.secondary)
+                    .frame(width: 28, height: 28).contentShape(Rectangle())
+                    .accessibilityLabel("Drag to swap dinner")
+                    .help("Drag to another day to swap dinners")
+                    .onDrag {
+                        let provider = NSItemProvider()
+                        let payload = MealDayDrag(day: day, week: week)
+                        provider.registerDataRepresentation(forTypeIdentifier: UTType.houseHippoMealDay.identifier, visibility: .all) { completion in
+                            do { completion(try JSONEncoder().encode(payload), nil) }
+                            catch { completion(nil, error) }
+                            return nil
+                        }
+                        return provider
+                    }
+            }.foregroundStyle(isToday ? Color.teal : Color.secondary)
+            TextField("Add dinner…", text: $dinners[day], axis: .vertical)
+                .textFieldStyle(.plain).lineLimit(1...4)
+                .accessibilityLabel("Dinner for " + date.formatted(date: .complete, time: .omitted))
+            Spacer(minLength: 0)
+        }
+        .padding(12).frame(maxWidth: .infinity, minHeight: 108, alignment: .topLeading)
+        .background(targetedDay == day ? Color.accentColor.opacity(0.12) : Color.clear, in: RoundedRectangle(cornerRadius: HippoLayout.cornerRadius))
+        .hippoCard(border: isToday ? .teal : Color.primary.opacity(0.08), lineWidth: isToday ? 2 : 1)
+        .onDrop(of: [UTType.houseHippoMealDay], isTargeted: Binding(
+            get: { targetedDay == day },
+            set: { targeted in
+                if targeted { targetedDay = day }
+                else if targetedDay == day { targetedDay = nil }
+            }
+        )) { providers in
+            guard let provider = providers.first else { return false }
+            let destinationWeek = week
+            provider.loadDataRepresentation(forTypeIdentifier: UTType.houseHippoMealDay.identifier) { data, _ in
+                guard let data, let value = try? JSONDecoder().decode(MealDayDrag.self, from: data) else { return }
+                DispatchQueue.main.async {
+                    guard week == destinationWeek else { return }
+                    _ = swapDinner(value, onto: day)
+                }
+            }
+            return true
         }
     }
     private func moveWeek(_ offset: Int) {

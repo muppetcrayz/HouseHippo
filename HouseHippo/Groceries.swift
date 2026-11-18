@@ -6,30 +6,49 @@ struct GroceryView: View {
     @State private var editing: GroceryItem?
     @State private var issue: String?
     @State private var confirmingClear = false
+    @FocusState private var adding: Bool
     private var items: [GroceryItem] { (try? cloud.groceries()) ?? [] }
     var body: some View {
         let snapshot = items
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .bottom) {
-                HippoField("Add groceries", text: $name, prompt: "e.g. 2 lb apples").onSubmit(add)
-                Button("Add", systemImage: "plus") { add() }.buttonStyle(.borderedProminent).frame(minHeight: 48).disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        let checked = snapshot.filter(\.checked)
+        VStack(alignment: .leading, spacing: 12) {
+            HippoSectionHeader(title: "Groceries", icon: "cart", count: snapshot.count - checked.count, accent: .green) {
+                HStack(spacing: 8) {
+                    TextField("Add an item, e.g. 2 lb apples", text: $name)
+                        .textFieldStyle(.plain).focused($adding).onSubmit { add(); adding = true }
+                        .padding(.horizontal, 11).frame(minHeight: 40)
+                        .background(.background, in: RoundedRectangle(cornerRadius: 9))
+                        .overlay { RoundedRectangle(cornerRadius: 9).strokeBorder(Color.secondary.opacity(0.4)) }
+                        .accessibilityLabel("Add groceries")
+                    Button("Add", systemImage: "plus") { add() }.buttonStyle(.borderedProminent).labelStyle(.titleOnly)
+                        .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }.frame(minWidth: 260, maxWidth: 440)
             }
-            if snapshot.isEmpty { Text("Add your first item. Categories are suggested automatically.").font(.callout).foregroundStyle(.secondary) }
-            ForEach(GroceryCategory.allCases, id: \.self) { category in
-                let group = snapshot.filter { !$0.checked && $0.category == category }
-                if !group.isEmpty {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text(category.rawValue).font(.headline).foregroundStyle(.teal)
-                        ForEach(group) { row($0) }
+            if snapshot.isEmpty { HippoNotice(text: "Add your first item. Categories are suggested automatically.", icon: "cart", accent: .green) }
+            HippoGrid(minimum: 220) {
+                ForEach(GroceryCategory.allCases, id: \.self) { category in
+                    let group = snapshot.filter { !$0.checked && $0.category == category }
+                    if !group.isEmpty {
+                        VStack(alignment: .leading, spacing: 0) {
+                            HStack(spacing: 6) {
+                                Text(category.rawValue).font(.subheadline.bold()).foregroundStyle(.teal)
+                                Text(group.count, format: .number).font(.caption).foregroundStyle(.secondary)
+                            }.padding(.bottom, 2)
+                            ForEach(Array(group.enumerated()), id: \.element.id) { index, item in
+                                if index > 0 { Divider() }
+                                row(item)
+                            }
+                        }.padding(.horizontal, 14).padding(.top, 12).padding(.bottom, 4).hippoCard()
                     }
                 }
             }
-            let checked = snapshot.filter(\.checked)
             if !checked.isEmpty {
-                Button(role: .destructive) { confirmingClear = true } label: {
-                    Label("Clear checked items (\(checked.count))", systemImage: "trash")
-                }
-                DisclosureGroup("Checked off (\(checked.count))") { ForEach(checked) { row($0) } }
+                VStack(alignment: .leading, spacing: 6) {
+                    DisclosureGroup("Checked off (\(checked.count))") { ForEach(checked) { row($0) } }
+                    Button(role: .destructive) { confirmingClear = true } label: {
+                        Label("Clear checked items (\(checked.count))", systemImage: "trash")
+                    }.buttonStyle(.bordered)
+                }.padding(.top, 4)
             }
         }
         .confirmationDialog("Clear all checked grocery items?", isPresented: $confirmingClear, titleVisibility: .visible) {

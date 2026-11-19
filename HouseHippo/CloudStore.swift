@@ -288,7 +288,8 @@ import CryptoKit
         do {
             for record in records {
                 guard record.canImport else { result.unreadable += 1; continue }
-                let id = Self.appleNoteID(sourceID: record.id)
+                let generation = try read("househippo.notebookImportGeneration").flatMap { String(data: $0, encoding: .utf8) }
+                let id = Self.appleNoteID(sourceID: generation.map { record.id + "\0" + $0 } ?? record.id)
                 // Include deleted/archived notes when checking duplicates: importing again must never resurrect or overwrite them.
                 if try note(id: id) != nil { result.alreadyImported += 1; continue }
                 var note = HouseNote(id: id, title: record.title, body: record.body)
@@ -303,6 +304,28 @@ import CryptoKit
             }
             if context.hasChanges { try context.save(); revision += 1 }
             return result
+        } catch { context.rollback(); throw error }
+    }
+
+    /// Keep tombstones so stale editors cannot restore cleared notes. A new import
+    /// generation lets the user deliberately copy the same Apple sources again.
+    func resetNotebook() throws {
+        try beginBatch()
+        defer { endBatch() }
+        do {
+            // Resolve legacy links before hiding their source notes.
+            for var task in try tasks() where task.linkedNoteID != nil {
+                try migrateTaskNote(&task)
+                try save(task)
+            }
+            for var note in try notes(includeHidden: true) where note.deletedAt == nil {
+                note.deletedAt = Date()
+                note.archived = true
+                try saveNote(note)
+            }
+            try put(Data(UUID().uuidString.utf8), key: "househippo.notebookImportGeneration")
+            try context.save()
+            revision += 1
         } catch { context.rollback(); throw error }
     }
 

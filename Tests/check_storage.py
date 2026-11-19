@@ -440,6 +440,28 @@ checks = r'''
         let anotherApple = try again.importAppleNotes([sameTitle])
         precondition(anotherApple.imported == 1)
         precondition(CloudStore.appleNoteID(sourceID: sameTitle.id) != stableAppleID)
+        let preservedTask = Reminder(title: "Keep task note", message: "", date: Date(), frequency: .flexible)
+        var resetLinkedTask = preservedTask
+        let linkedSource = HouseNote(title: "Task source", body: "Keep this task text")
+        try again.saveNote(linkedSource)
+        resetLinkedTask.linkedNoteID = linkedSource.id
+        try again.save(resetLinkedTask)
+        try again.resetNotebook()
+        let clearedNotebook = try again.notes()
+        precondition(clearedNotebook.isEmpty)
+        let preservedTasks = try again.tasks()
+        precondition(preservedTasks.first { $0.id == resetLinkedTask.id }?.taskNote == linkedSource.body)
+        do { try again.saveNote(appleEdited); fatalError("Reset allowed a stale editor") } catch {}
+        let freshImport = try again.importAppleNotes([appleSource])
+        precondition(freshImport.imported == 1)
+        let freshNotes = try again.notes()
+        precondition(freshNotes.count == 1 && freshNotes[0].id != stableAppleID)
+        let repeatedFreshImport = try again.importAppleNotes([appleSource])
+        precondition(repeatedFreshImport.alreadyImported == 1)
+        let freshReopen = CloudStore(directory: base, cloudEnabled: false, defaults: defaults, legacyDefaults: nil)
+        let reopenedFreshImport = try freshReopen.importAppleNotes([appleSource])
+        precondition(reopenedFreshImport.alreadyImported == 1)
+        print("Notebook reset checks passed: clears notes, preserves task text, blocks stale saves, allows fresh import, deduplicates and survives reopen.")
         let foodCases: [(String, GroceryCategory)] = [
             ("2 lb apples", .produce), ("MILK", .dairy), ("Almond milk", .dairy),
             ("eggplant", .produce), ("peanut butter", .pantry), ("chicken broth", .pantry),

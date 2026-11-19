@@ -279,6 +279,19 @@ struct HouseNote: Identifiable, Codable, Equatable {
     var appleNotesOriginalHTML: String?
     var appleNotesFolder: String?
     var appleNotesAttachmentCount: Int?
+    var markdownText: String {
+        guard let paragraphs else { return body }
+        return paragraphs.map { paragraph in
+            let prefix: String
+            switch paragraph.style {
+            case "h1": prefix = "# "
+            case "h2": prefix = "## "
+            case "bullet": prefix = String(repeating: "  ", count: max(0, min(6, paragraph.depth))) + "- "
+            default: prefix = ""
+            }
+            return prefix + paragraph.text
+        }.joined(separator: "\n")
+    }
     var displayTitle: String { title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Untitled note" : title }
 }
 

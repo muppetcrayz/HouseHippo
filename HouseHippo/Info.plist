@@ -2,6 +2,8 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>NSAppleEventsUsageDescription</key>
+	<string>Import selected Apple Notes into HouseHippo once. HouseHippo does not change Apple Notes.</string>
 	<key>UTExportedTypeDeclarations</key>
 	<array>
 		<dict>

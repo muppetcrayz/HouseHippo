@@ -292,6 +292,7 @@ import CryptoKit
                 // Include deleted/archived notes when checking duplicates: importing again must never resurrect or overwrite them.
                 if try note(id: id) != nil { result.alreadyImported += 1; continue }
                 var note = HouseNote(id: id, title: record.title, body: record.body)
+                note.paragraphs = record.paragraphs
                 note.appleNotesSourceID = record.id
                 note.appleNotesOriginalHTML = record.html
                 note.appleNotesFolder = record.folder

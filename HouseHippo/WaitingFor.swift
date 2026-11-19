@@ -668,6 +668,7 @@ struct LifeHubView: View {
     @State private var borrowed: [BorrowedItem] = []
     @State private var markers: [LastTimeEntry] = []
     @State private var payments: [PaymentDue] = []
+    @State private var noteCount = 0
     @State private var collections = 0
     @State private var records = 0
     @State private var issue: String?
@@ -697,6 +698,9 @@ struct LifeHubView: View {
                         let oldest = markers.min { $0.date() < $1.date() }
                         tile("Last Time", value: markers.count, icon: "calendar.badge.clock", color: .indigo,
                              caption: oldest.map { "\($0.title), \($0.elapsed().lowercased())" } ?? "No markers yet")
+                    }
+                    NavigationLink { NotesHome() } label: {
+                        tile("Notes", value: noteCount, icon: "note.text", color: .teal, caption: "Household notebook")
                     }
                     NavigationLink { InventoryHome() } label: {
                         tile("Inventory", value: collections, icon: "archivebox", color: .green,
@@ -751,6 +755,7 @@ struct LifeHubView: View {
     }
     private func reload() {
         do {
+            noteCount = try cloud.notes().count
             waiting = try cloud.waitingRecords()
             var latest: [UUID: WaitingUpdate] = [:]
             for record in waiting { latest[record.id] = try cloud.waitingUpdates(for: record.id).first }

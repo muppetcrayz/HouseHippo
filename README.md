@@ -101,3 +101,11 @@ Recurring bills are scoped to **November 1, 2026 through October 31, 2027** (the
 
 
 Calendar file reading and parsing run on a cancellable background task, with a progress indicator and a 25 MB file limit. Large previews show 50 bills/messages per page. Saving uses a private Core Data context, checks calendar identities again, commits the selected bills in one transaction, and refreshes the UI once. Recurrence lookup jumps to the requested month for unlimited series and caches displayed pay-period occurrences instead of recalculating on every form update. Finance sheets use grouped, scrollable forms with explicit Mac sizes; input placeholders stay inside the fields, and sheet buttons remain visible while scrolling.
+
+## Notes
+
+Open **Notes** in the Mac sidebar or the iPhone/iPad **Life** tab. Create and edit notes using text paragraphs, headings, subheadings, and indented bullets. Notes belong to the shared household and sync through HouseHippo's iCloud store.
+
+On Mac, **Import Apple Notes** reads available notes and shows a selection preview before saving anything. Allow Notes access when macOS prompts. Select the notes you want and choose **Import selected**. This is a one-time copy: future editing happens in HouseHippo. Apple Notes is never modified, and later changes there are not pulled in. Repeating an import skips notes already copied, even if the HouseHippo copy was edited or deleted. Locked/unreadable notes are unavailable; attachments are omitted. Only headings, bullet lists, indentation, and text are retained in the editor; original HTML is retained in storage for recovery. Ordered lists become bullets. Existing HouseHippo notes remain available as plain paragraphs.
+
+Validation: `python3 Tests/check_notes.py` and `python3 Tests/check_storage.py`.

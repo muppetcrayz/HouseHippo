@@ -259,6 +259,13 @@ struct Reminder: Identifiable, Codable, Equatable {
     }
 }
 
+struct NoteParagraph: Identifiable, Codable, Equatable, Sendable {
+    var id = UUID()
+    var text: String
+    var style = "body"
+    var depth = 0
+}
+
 struct HouseNote: Identifiable, Codable, Equatable {
     var id = UUID()
     var title: String
@@ -266,6 +273,7 @@ struct HouseNote: Identifiable, Codable, Equatable {
     var archived: Bool?
     var deletedAt: Date?
     var sourceTaskID: UUID?
+    var paragraphs: [NoteParagraph]?
     var appleNotesSourceID: String?
     var appleNotesBodyIsCanonical: Bool?
     var appleNotesOriginalHTML: String?
@@ -651,6 +659,7 @@ struct AppleNoteImportRecord: Identifiable, Sendable {
     var attachments: Int
     var locked: Bool
     var readError: String?
+    var paragraphs: [NoteParagraph]?
     var canImport: Bool { !id.isEmpty && !locked && readError == nil }
 }
 
@@ -1075,6 +1084,7 @@ struct HouseHippoHome: View {
                             Label("Inventory", systemImage: "archivebox").tag(9)
                             Label("Things To Pay", systemImage: "creditcard").tag(10)
                         }
+                        Label("Notes", systemImage: "note.text").tag(11)
                         Label("Meals", systemImage: "fork.knife").tag(5)
                     }.listStyle(.sidebar)
                 }.navigationSplitViewColumnWidth(min: 170, ideal: 200, max: 250)
@@ -1086,6 +1096,7 @@ struct HouseHippoHome: View {
                 case 8: NavigationStack { LastTimeView() }
                 case 9: InventoryView()
                 case 10: NavigationStack { ThingsToPayView() }
+                case 11: NavigationStack { NotesHome() }
                 case 2: HomeDashboard(navigate: { selectedTab = $0 }, showCompletedTasks: showCompletedTasks)
                 default: MealsView()
                 }

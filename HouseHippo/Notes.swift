@@ -40,7 +40,8 @@ struct NotesHome: View {
                     Button { editing = note } label: {
                         VStack(alignment: .leading, spacing: 8) {
                             Text(note.displayTitle).font(.headline)
-                            Text(note.body).font(.callout).foregroundStyle(.secondary).lineLimit(4)
+                            NoteMarkdownPreview(markdown: note.markdownText, maximumLines: 4)
+                                .font(.callout).foregroundStyle(.secondary)
                         }.frame(maxWidth: .infinity, alignment: .leading).padding(16).hippoCard()
                     }.buttonStyle(.plain)
                 }
@@ -122,7 +123,7 @@ private struct NoteEditor: View {
     @Environment(\.dismiss) private var dismiss
     @State var note: HouseNote
     @State private var markdown: String
-    @State private var previewing = false
+    @State private var previewing = true
     @State private var issue: String?
     @State private var deleting = false
 
@@ -140,7 +141,7 @@ private struct NoteEditor: View {
                     Text("Preview").tag(true)
                 }.pickerStyle(.segmented)
                 if previewing {
-                    ScrollView { NoteMarkdownPreview(markdown: markdown).padding(12).frame(maxWidth: .infinity, alignment: .leading) }
+                    ScrollView { NoteMarkdownPreview(markdown: markdown).textSelection(.enabled).padding(12).frame(maxWidth: .infinity, alignment: .leading) }
                 } else {
                     Text("# Heading   ·   ## Subheading   ·   - Bullet").font(.caption).foregroundStyle(.secondary)
                     TextEditor(text: $markdown)
@@ -171,9 +172,11 @@ private struct NoteEditor: View {
 
 private struct NoteMarkdownPreview: View {
     let markdown: String
+    var maximumLines: Int? = nil
+    private var lines: [String] { markdown.components(separatedBy: "\n") }
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            ForEach(Array(markdown.components(separatedBy: "\n").enumerated()), id: \.offset) { _, line in
+            ForEach(Array(lines.prefix(maximumLines ?? lines.count).enumerated()), id: \.offset) { _, line in
                 let trimmed = line.trimmingCharacters(in: .whitespaces)
                 let hashes = trimmed.prefix(while: { $0 == "#" }).count
                 if (1...6).contains(hashes), trimmed.dropFirst(hashes).hasPrefix(" ") {
@@ -191,7 +194,10 @@ private struct NoteMarkdownPreview: View {
                     inline(line)
                 }
             }
-        }.textSelection(.enabled)
+            if let maximumLines, lines.count > maximumLines {
+                Text("…").accessibilityLabel("Open note to read more")
+            }
+        }.lineLimit(maximumLines == nil ? nil : 1)
     }
     private func inline(_ text: String) -> Text {
         Text((try? AttributedString(markdown: text, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(text))

@@ -110,7 +110,8 @@ struct AppleRemindersWriteFailure: LocalizedError {
             rule = Self.canonical(frequency: task.unit == .days ? "DAILY" : "WEEKLY", interval: max(1, task.interval), days: task.unit == .weeks ? [Calendar.current.component(.weekday, from: task.recurrenceAnchor ?? task.date)] : nil, monthDay: nil, last: false, weekStart: 2, until: task.recurrenceUntil)
         case .flexible: rule = nil
         }
-        let due = task.isUnscheduled || task.hasDueDate == false ? nil : (task.isAllDay ? Calendar.current.startOfDay(for: task.date) : Self.minuteDate(task.date))
+        let effectiveDue = task.deferredUntil ?? task.date
+        let due = task.isUnscheduled || task.hasDueDate == false ? nil : (task.isAllDay ? Calendar.current.startOfDay(for: effectiveDue) : Self.minuteDate(effectiveDue))
         return SyncedTaskValue(title: task.title, calendarID: calendarID, date: due, allDay: due == nil || task.isAllDay, completed: task.completed, rule: rule)
     }
     func value(_ item: EKReminder) throws -> SyncedTaskValue {
@@ -132,7 +133,9 @@ struct AppleRemindersWriteFailure: LocalizedError {
         task.allDay = value.allDay
         task.date = value.date ?? .distantPast
         task.completed = value.completed
-        if value.completed { task.deferredUntil = nil; task.deferredBeforeCompletion = nil }
+        // The incoming due date is authoritative, including when another app reschedules it.
+        task.deferredUntil = nil
+        task.deferredBeforeCompletion = nil
         task.sourceID = source.calendarItemIdentifier
         task.appleReminderExternalID = source.calendarItemExternalIdentifier
         task.appleReminderCalendarID = value.calendarID

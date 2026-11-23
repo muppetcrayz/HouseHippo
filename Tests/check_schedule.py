@@ -418,6 +418,25 @@ do {
     print("Dashboard ordering checks passed: all-day first, clock time, list, title, overdue dates, deferrals, flexible tasks and stable ties.")
 }
 '''
+checks += r'''
+do {
+    func due(_ year: Int, _ month: Int, _ day: Int) -> Date { calendar.date(from: DateComponents(year: year, month: month, day: day))! }
+    let monday = due(2030, 11, 4)
+    var task = Reminder(title: "Skip weekly", message: "", date: monday, frequency: .weekly)
+    task.allDay = true
+    task.selectedWeekdays = [2]
+    task.moveToNextRepeat(at: monday)
+    precondition(task.deferredUntil == due(2030, 11, 11))
+    precondition(task.date == monday && !task.completed && task.history.isEmpty && task.lastCompleted == nil)
+    task.moveToNextRepeat(at: monday)
+    precondition(task.deferredUntil == due(2030, 11, 18))
+    task.recurrenceUntil = due(2030, 11, 18)
+    precondition(task.nextRepeatDate(at: monday) == nil)
+    let once = Reminder(title: "Once", message: "", date: monday, frequency: .once)
+    precondition(once.nextRepeatDate(at: monday) == nil)
+}
+print("Next-repeat checks passed: skip without completion, repeated skips, and recurrence end.")
+'''
 with tempfile.TemporaryDirectory(prefix="NotifyMe-checks-") as directory:
     script = Path(directory) / "Checks.swift"
     script.write_text("import Foundation\n" + model + method + "\n" + checks)

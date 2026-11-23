@@ -2,6 +2,20 @@ import SwiftUI
 
 struct TaskNoteSection: View {
     @Binding var reminder: Reminder
+    @State private var previewing = true
+    @FocusState private var editing: Bool
+
+    private var markdown: Binding<String> {
+        Binding(get: { reminder.taskNote ?? "" }, set: { reminder.taskNote = $0 })
+    }
+
+    private var editorHeight: CGFloat {
+        #if os(iOS)
+        300
+        #else
+        240
+        #endif
+    }
 
     var body: some View {
         Section("Task note") {
@@ -9,10 +23,38 @@ struct TaskNoteSection: View {
                 Text("Your task note is downloading. Reopen this task once it arrives.")
                     .foregroundStyle(.secondary)
             } else {
-                HippoTextArea(label: "Notes", text: Binding(
-                    get: { reminder.taskNote ?? "" },
-                    set: { reminder.taskNote = $0 }
-                ))
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack {
+                        Text(previewing ? "Preview" : "Markdown").font(.caption).foregroundStyle(.secondary)
+                        Spacer()
+                        Button(previewing ? "Edit" : "Preview", systemImage: previewing ? "pencil" : "eye") {
+                            previewing.toggle()
+                            editing = !previewing
+                        }.buttonStyle(.bordered)
+                    }
+                    if previewing {
+                        if markdown.wrappedValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            Text("No notes yet. Choose Edit to add a Markdown note.")
+                                .foregroundStyle(.secondary)
+                        } else {
+                            NoteMarkdownPreview(markdown: markdown.wrappedValue)
+                                .textSelection(.enabled)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                    } else {
+                        Text("# Heading   ·   ## Subheading   ·   - Bullet").font(.caption).foregroundStyle(.secondary)
+                        TextEditor(text: markdown)
+                            .font(.system(.body, design: .monospaced))
+                            .scrollContentBackground(.hidden)
+                            .padding(8)
+                            .frame(height: editorHeight)
+                            .background(.background, in: RoundedRectangle(cornerRadius: 9))
+                            .overlay { RoundedRectangle(cornerRadius: 9).strokeBorder(editing ? Color.accentColor : Color.secondary.opacity(0.4), lineWidth: editing ? 2 : 1) }
+                            .focused($editing)
+                            .accessibilityLabel("Markdown task note")
+                    }
+                }
             }
         }
     }

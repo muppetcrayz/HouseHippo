@@ -32,7 +32,7 @@ struct HomeDashboard: View {
         let tasks = visible
         let overdue = tasks.filter { $0.isOverdue(at: now) }
         let today = (overdue + tasks.filter { $0.isDueToday(at: now) && !$0.isOverdue(at: now) }).sorted(by: Reminder.dashboardOrderedBefore)
-        let flexible = tasks.filter { $0.isAvailableFlexible(at: now) && !$0.isOverdue(at: now) }.sorted(by: Reminder.dashboardOrderedBefore)
+        let flexible = tasks.filter { $0.isAvailableFlexible(at: now) && !$0.isOverdue(at: now) }.sorted(by: Reminder.flexibleOrderedBefore)
         return NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 22) {
@@ -217,6 +217,12 @@ private struct DashboardTaskCard: View {
         .contextMenu {
             if task.canMoveToTomorrow {
                 Button("Move to tomorrow", systemImage: "calendar.badge.clock") { Task { await store.moveToTomorrow(task) } }
+            }
+            if task.nextRepeatDate(at: now) != nil {
+                Button("Move to next repeat", systemImage: "calendar.badge.arrow.right") { Task { await store.moveToNextRepeat(task) } }
+            }
+            if task.isFlexibleTask && !task.completed {
+                Button("Convert to Waiting For", systemImage: "clock") { Task { await store.convertToWaitingFor(task) } }
             }
             Button("Delete task", role: .destructive) { Task { await store.delete(task) } }
         }

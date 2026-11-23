@@ -592,6 +592,24 @@ checks = r'''
             print("Verified transfer file: \(fileCount) records imported with identical payloads.")
         }
         print("Backup transfer checks passed: payloads preserved, idempotent import, destination edits kept, retirement markers retained, invalid format rejected and durable reopen.")
+        var conversionTask = Reminder(title: "Await reply", message: "", date: Date(), frequency: .anytime)
+        conversionTask.hasDueDate = false
+        conversionTask.taskNote = "Sent the paperwork"
+        try transfer.save(conversionTask)
+        try transfer.convertToWaitingFor(conversionTask)
+        let conversionReopen = CloudStore(directory: transferBase, cloudEnabled: false, defaults: transferDefaults, legacyDefaults: nil)
+        let convertedRecords = try conversionReopen.waitingRecords()
+        precondition(convertedRecords.contains { $0.id == conversionTask.id && $0.title == conversionTask.title })
+        let convertedUpdates = try conversionReopen.waitingUpdates(for: conversionTask.id)
+        precondition(convertedUpdates.count == 1 && convertedUpdates[0].text == conversionTask.taskNote)
+        let convertedTasks = try conversionReopen.tasks()
+        precondition(!convertedTasks.contains { $0.id == conversionTask.id })
+        do { try transfer.convertToWaitingFor(conversionTask); preconditionFailure("Converted twice") } catch {}
+        var scheduledConversion = conversionTask
+        scheduledConversion.id = UUID(); scheduledConversion.frequency = .once; scheduledConversion.hasDueDate = true
+        try transfer.save(scheduledConversion)
+        do { try transfer.convertToWaitingFor(scheduledConversion); preconditionFailure("Converted scheduled task") } catch {}
+        print("Waiting For conversion checks passed: title, notes, task removal, duplicate and eligibility protection.")
         print("Storage checks passed: migration, offline writes, independent tasks, reopen, deletion, recovery copy and CloudKit-compatible schema.")
     }
 }

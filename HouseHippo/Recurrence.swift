@@ -9,6 +9,22 @@ extension Reminder {
         deferredUntil = isAllDay || isFlexibleTask ? tomorrow : calendar.date(bySettingHour: time.hour ?? 0, minute: time.minute ?? 0, second: time.second ?? 0, of: tomorrow)
     }
 
+    func nextRepeatDate(at now: Date = Date(), calendar: Calendar = .current) -> Date? {
+        guard canMoveToTomorrow, recurrenceReviewReason == nil else { return nil }
+        // Skip the current occurrence, including an overdue one, without recording a completion.
+        var reference = max(now, effectiveDate)
+        if isAllDay {
+            guard let tomorrow = calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: reference)) else { return nil }
+            reference = tomorrow.addingTimeInterval(-1)
+        }
+        return nextScheduledOccurrence(after: reference, calendar: calendar)
+    }
+    mutating func moveToNextRepeat(at now: Date = Date(), calendar: Calendar = .current) {
+        guard let next = nextRepeatDate(at: now, calendar: calendar) else { return }
+        recurrenceAnchor = recurrenceAnchor ?? date
+        deferredUntil = next
+    }
+
     func isDelayed(at now: Date = Date(), calendar: Calendar = .current) -> Bool {
         guard canMoveToTomorrow, let deferredUntil else { return false }
         return calendar.startOfDay(for: deferredUntil) > calendar.startOfDay(for: now)

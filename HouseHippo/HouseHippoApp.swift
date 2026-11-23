@@ -181,6 +181,19 @@ struct Reminder: Identifiable, Codable, Equatable {
         return lastCompleted == nil ? month : calendar.date(byAdding: .month, value: max(1, interval), to: month)!
     }
     var effectiveDate: Date { deferredUntil ?? (frequency == .flexible ? dueMonth : date) }
+    static func flexibleOrderedBefore(_ lhs: Reminder, _ rhs: Reminder) -> Bool {
+        // Keep each person's tasks together, before shared household tasks.
+        func ownerOrder(_ owner: Owner) -> Int {
+            switch owner { case .me: return 0; case .husband: return 1; case .shared: return 2 }
+        }
+        let lhsOwner = ownerOrder(lhs.owner), rhsOwner = ownerOrder(rhs.owner)
+        if lhsOwner != rhsOwner { return lhsOwner < rhsOwner }
+        let listOrder = lhs.list.localizedStandardCompare(rhs.list)
+        if listOrder != .orderedSame { return listOrder == .orderedAscending }
+        let titleOrder = lhs.title.localizedStandardCompare(rhs.title)
+        if titleOrder != .orderedSame { return titleOrder == .orderedAscending }
+        return lhs.id.uuidString < rhs.id.uuidString
+    }
     static func dashboardOrderedBefore(_ lhs: Reminder, _ rhs: Reminder) -> Bool {
         let lhsAllDay = lhs.isAllDay || lhs.isFlexibleTask
         let rhsAllDay = rhs.isAllDay || rhs.isFlexibleTask
@@ -790,6 +803,18 @@ final class NotificationDelegate: NSObject, UNUserNotificationCenterDelegate, Ob
         do { try cloud.save(reminder); reloadTasks(); await schedule() }
         catch { self.error = "Could not save task: " + error.localizedDescription }
     }
+    @discardableResult
+    func convertToWaitingFor(_ reminder: Reminder) async -> Bool {
+        do {
+            try cloud.convertToWaitingFor(reminder)
+            reloadTasks()
+            await schedule()
+            return true
+        } catch {
+            self.error = "Could not convert task: " + error.localizedDescription
+            return false
+        }
+    }
     func complete(_ reminder: Reminder) async {
         var changed = reminder
         changed.markCompleted()
@@ -798,6 +823,11 @@ final class NotificationDelegate: NSObject, UNUserNotificationCenterDelegate, Ob
     func moveToTomorrow(_ reminder: Reminder) async {
         guard var current = reminders.first(where: { $0.id == reminder.id }) else { return }
         current.moveToTomorrow()
+        await save(current)
+    }
+    func moveToNextRepeat(_ reminder: Reminder) async {
+        guard var current = reminders.first(where: { $0.id == reminder.id }) else { return }
+        current.moveToNextRepeat()
         await save(current)
     }
     func moveBackToToday(_ reminder: Reminder) async {
@@ -1188,7 +1218,7 @@ struct TaskList: View {
                             board("Delayed", icon: "calendar.badge.clock", accent: .orange, groups: [("", tasks.filter { $0.isDelayed(at: now) })])
                         } else {
                             board("Scheduled", icon: "calendar", accent: .teal, groups: scheduledGroups(tasks.filter { !$0.isFlexibleTask }))
-                            let flexible = tasks.filter(\.isFlexibleTask).sorted(by: Reminder.dashboardOrderedBefore)
+                            let flexible = tasks.filter(\.isFlexibleTask).sorted(by: Reminder.flexibleOrderedBefore)
                             board("Flexible", icon: "leaf", accent: .orange, groups: [
                                 ("Ready any time", flexible.filter { $0.isAvailableFlexible(at: now) }),
                                 ("Resting", flexible.filter { !$0.isAvailableFlexible(at: now) })
@@ -1362,6 +1392,12 @@ struct TaskList: View {
             if task.canMoveToTomorrow && !completedScope {
                 Button("Move to tomorrow", systemImage: "calendar.badge.clock") { Task { await store.moveToTomorrow(task) } }
             }
+            if !completedScope && task.nextRepeatDate() != nil {
+                Button("Move to next repeat", systemImage: "calendar.badge.arrow.right") { Task { await store.moveToNextRepeat(task) } }
+            }
+            if task.isFlexibleTask && !task.completed {
+                Button("Convert to Waiting For", systemImage: "clock") { Task { await store.convertToWaitingFor(task) } }
+            }
             Button("Delete", role: .destructive) { Task { await store.delete(task) } }
         }
     }
@@ -1519,6 +1555,18 @@ struct ReminderEditor: View {
                 }
                 if !reminder.isNotification && !reminder.completed && store.reminders.contains(where: { $0.id == reminder.id }) {
                     Section { Button("Mark done", systemImage: "checkmark.circle") { Task { await store.complete(reminder); dismiss() } } }
+                }
+                if reminder.isFlexibleTask && !reminder.completed && store.reminders.contains(where: { $0.id == reminder.id }) {
+                    Section {
+                        Button("Convert to Waiting For", systemImage: "clock") {
+                            saving = true
+                            Task {
+                                if await store.convertToWaitingFor(reminder) { dismiss() }
+                                saving = false
+                            }
+                        }.disabled(saving || reminder.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        Text("Moves this task to Waiting For, with its notes as the first update.").font(.caption).foregroundStyle(.secondary)
+                    }
                 }
                 TaskNoteSection(reminder: $reminder)
             }.hippoForm()

@@ -86,6 +86,20 @@ for fixture in fixtures {
     precondition(try appleSyncData(independent) == before)
 }
 var completed=Reminder(title:"Task",message:"",date:Date(),frequency:.once)
+var moved = completed
+moved.allDay = true
+let originalWire = try AppleRemindersAdapter.taskValue(moved, calendarID: "list")
+moved.moveToTomorrow()
+let tomorrowWire = try AppleRemindersAdapter.taskValue(moved, calendarID: "list")
+precondition(tomorrowWire.date == Calendar.current.startOfDay(for: moved.deferredUntil!))
+precondition(tomorrowWire.rule == originalWire.rule && tomorrowWire.completed == originalWire.completed)
+let originalMoveData = try appleSyncData(originalWire)
+let movedData = try appleSyncData(tomorrowWire)
+precondition(AppleSyncPolicy.action(base: originalMoveData, local: movedData, remote: originalMoveData) == .push)
+moved.frequency = .daily
+moved.moveToNextRepeat()
+let repeatWire = try AppleRemindersAdapter.taskValue(moved, calendarID: "list")
+precondition(repeatWire.date == Calendar.current.startOfDay(for: moved.deferredUntil!))
 let activeData=try appleSyncData(AppleRemindersAdapter.taskValue(completed,calendarID:"list"))
 completed.completed=true
 let completeData=try appleSyncData(AppleRemindersAdapter.taskValue(completed,calendarID:"list"))

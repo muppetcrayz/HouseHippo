@@ -396,6 +396,37 @@ import CryptoKit
             $0.date == $1.date ? $0.id.uuidString < $1.id.uuidString : $0.date > $1.date
         }
     }
+    /// Commit the destination and source tombstone together so a failed save cannot lose the task.
+    func convertToWaitingFor(_ task: Reminder) throws {
+        guard let current = try tasks().first(where: { $0.id == task.id }),
+              current.isFlexibleTask, !current.completed, task.isFlexibleTask, !task.completed else {
+            throw NSError(domain: "HouseHippo", code: 7, userInfo: [NSLocalizedDescriptionKey: "This flexible task is no longer available for conversion."])
+        }
+        let title = task.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !title.isEmpty else {
+            throw NSError(domain: "HouseHippo", code: 7, userInfo: [NSLocalizedDescriptionKey: "Enter a title before converting this task."])
+        }
+        try beginBatch()
+        defer { endBatch() }
+        do {
+            var source = task
+            try migrateTaskNote(&source)
+            guard source.linkedNoteID == nil else {
+                throw NSError(domain: "HouseHippo", code: 7, userInfo: [NSLocalizedDescriptionKey: "The task’s notes have not downloaded yet. Try again once they are available."])
+            }
+            let record = WaitingRecord(id: source.id, title: title)
+            try saveWaitingRecord(record)
+            let text = (source.taskNote ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            if !text.isEmpty {
+                try saveWaitingUpdate(WaitingUpdate(id: source.id, recordID: record.id, text: text, date: record.createdAt))
+            }
+            source.deletedAt = record.createdAt
+            try save(source)
+            try context.save()
+            revision += 1
+        } catch { context.rollback(); throw error }
+    }
+
     func saveWaitingRecord(_ record: WaitingRecord) throws {
         let key = "waiting.record." + record.id.uuidString
         if let data = try read(key), try JSONDecoder().decode(WaitingRecord.self, from: data).deletedAt != nil {

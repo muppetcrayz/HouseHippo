@@ -7,7 +7,7 @@ root = Path(__file__).resolve().parents[1]
 source = (root / "HouseHippo/HouseHippoApp.swift").read_text()
 model = source[source.index("struct Reminder:"):source.index("final class NotificationDelegate")]
 model += "\n" + (root / "HouseHippo/Recurrence.swift").read_text()
-method = source[source.index("    private func upcoming"):source.index("\n}\n\n@main")].replace("private func upcoming", "func upcoming")
+method = source[source.index("    private func upcoming"):source.index("\n}\n\n#if !HOUSEHIPPO_TESTING")].replace("private func upcoming", "func upcoming")
 checks = 'let calendar = Calendar.current\nlet oldDate = calendar.date(byAdding: .year, value: -10, to: Date())!\nfor unit in Reminder.IntervalUnit.allCases {\n    let reminder = Reminder(title: "Test", message: "", date: oldDate, frequency: .custom, interval: 3, unit: unit)\n    let dates = upcoming(reminder, count: 20)\n    precondition(dates.count == 20)\n    precondition(dates.allSatisfy { $0 > Date() })\n    precondition(zip(dates, dates.dropFirst()).allSatisfy { $0 < $1 })\n}\nlet future = Date().addingTimeInterval(3600)\nlet one = upcoming(Reminder(title: "Future", message: "", date: future, frequency: .custom), count: 1)\nprecondition(one == [future])\nlet january = calendar.date(from: DateComponents(year: 2030, month: 1, day: 31, hour: 9))!\nlet months = upcoming(Reminder(title: "Month end", message: "", date: january, frequency: .custom, unit: .months), count: 3)\nprecondition(months.map { calendar.component(.day, from: $0) } == [31, 28, 31])\nprint("Schedule checks passed: past anchors, all interval units, ordering, future starts, and month ends.")\n'
 checks += r'''
 do {

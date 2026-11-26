@@ -21,6 +21,7 @@ xcuserdata/
 *.xcuserstate
 DerivedData/
 build/
+TestResults/
 *.xcarchive/
 *.dSYM/
 *.ipa

@@ -76,7 +76,7 @@ struct Reminder: Identifiable, Codable, Equatable {
         shouldNotify && (owner == .shared || owner == person)
     }
     static var devicePerson: Owner {
-        let stored = UserDefaults.standard.string(forKey: "househippo.person")
+        let stored = HouseHippoRuntime.defaults.string(forKey: "househippo.person")
         let person = stored.flatMap(Owner.init(rawValue:)) ?? .me
         return person == .shared ? .me : person
     }
@@ -717,6 +717,28 @@ enum MealWeek {
     }
 }
 
+/// Debug UI tests get their own persistent store and preference domain on every run.
+enum HouseHippoRuntime {
+    static let testID: UUID? = {
+        #if HOUSEHIPPO_UI_TESTING
+        // Running this configuration manually must also stay out of live storage.
+        return ProcessInfo.processInfo.environment["HOUSEHIPPO_UI_TEST_ID"].flatMap(UUID.init(uuidString:)) ?? UUID()
+        #elseif DEBUG
+        return ProcessInfo.processInfo.environment["HOUSEHIPPO_UI_TEST_ID"].flatMap(UUID.init(uuidString:))
+        #else
+        return nil
+        #endif
+    }()
+    static var isUITesting: Bool { testID != nil }
+    static var storeDirectory: URL? {
+        testID.map { FileManager.default.temporaryDirectory.appendingPathComponent("HouseHippo-UITests/" + $0.uuidString, isDirectory: true) }
+    }
+    static let defaults: UserDefaults = {
+        guard let testID else { return .standard }
+        return UserDefaults(suiteName: "HouseHippo.UITests." + testID.uuidString)!
+    }()
+}
+
 final class NotificationDelegate: NSObject, UNUserNotificationCenterDelegate, ObservableObject {
     static let shared = NotificationDelegate()
     @MainActor private var pendingShortcutURL: URL?
@@ -774,6 +796,7 @@ final class NotificationDelegate: NSObject, UNUserNotificationCenterDelegate, Ob
     private let cloud = CloudStore.shared
     private var cloudObserver: AnyCancellable?
     init() {
+        if HouseHippoRuntime.isUITesting { reloadTasks(); return }
         center.delegate = NotificationDelegate.shared
         #if os(macOS)
         // Remove alerts queued by earlier Mac builds without changing synced definitions.
@@ -969,6 +992,7 @@ final class NotificationDelegate: NSObject, UNUserNotificationCenterDelegate, Ob
     }
     func refresh() async {
         reloadTasks()
+        guard !HouseHippoRuntime.isUITesting else { return }
         await cloud.checkAccount()
         #if os(iOS)
         status = await center.notificationSettings().authorizationStatus
@@ -976,12 +1000,14 @@ final class NotificationDelegate: NSObject, UNUserNotificationCenterDelegate, Ob
         await schedule()
     }
     func requestPermission() async {
+        guard !HouseHippoRuntime.isUITesting else { return }
         #if os(iOS)
         do { _ = try await center.requestAuthorization(options: [.alert, .sound, .badge]); await refresh() }
         catch { self.error = error.localizedDescription }
         #endif
     }
     private func schedule() async {
+        guard !HouseHippoRuntime.isUITesting else { return }
         coverage = nil
         #if os(macOS)
         center.removeAllPendingNotificationRequests()
@@ -1064,6 +1090,7 @@ final class NotificationDelegate: NSObject, UNUserNotificationCenterDelegate, Ob
     }
 }
 
+#if !HOUSEHIPPO_TESTING
 @main struct HouseHippoApp: App {
     #if os(macOS)
     @NSApplicationDelegateAdaptor(HouseHippoDelegate.self) private var delegate
@@ -1074,7 +1101,13 @@ final class NotificationDelegate: NSObject, UNUserNotificationCenterDelegate, Ob
     @Environment(\.scenePhase) private var phase
     var body: some Scene {
         WindowGroup {
-            HouseHippoHome().environmentObject(store)
+            HouseHippoHome().environmentObject(store).defaultAppStorage(HouseHippoRuntime.defaults)
+                .overlay(alignment: .bottomLeading) {
+                    if HouseHippoRuntime.isUITesting {
+                        Text("Isolated UI test household").font(.caption2).padding(4)
+                            .background(.background).accessibilityIdentifier("househippo-ui-test-household")
+                    }
+                }
                 .task { NotificationDelegate.shared.openPendingShortcut(); AppleSyncService.shared.start(); await store.refresh() }
                 .onChange(of: phase) { _, value in
                     switch value {
@@ -1095,6 +1128,7 @@ final class NotificationDelegate: NSObject, UNUserNotificationCenterDelegate, Ob
         #endif
     }
 }
+#endif
 
 #if os(iOS)
 /// Wakes the app periodically so iCloud changes are downloaded before it is opened.

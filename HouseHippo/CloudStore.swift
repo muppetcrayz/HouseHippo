@@ -7,7 +7,10 @@ import CryptoKit
 /// One SQLite row per task or preference. Core Data handles the offline change log,
 /// CloudKit merges/deletions, and the owner's private and participant's shared stores.
 @MainActor final class CloudStore: ObservableObject {
-    static let shared = CloudStore()
+    static let shared = CloudStore(directory: HouseHippoRuntime.storeDirectory,
+                                   cloudEnabled: !HouseHippoRuntime.isUITesting,
+                                   defaults: HouseHippoRuntime.defaults,
+                                   legacyDefaults: HouseHippoRuntime.isUITesting ? nil : UserDefaults(suiteName: "com.sageturner.HouseHippo"))
     static let containerID = "iCloud.com.danturner.HouseHippo"
     let container: NSPersistentCloudKitContainer
     @Published private(set) var status = "Connecting to iCloud…"

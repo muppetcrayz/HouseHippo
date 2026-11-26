@@ -16,13 +16,16 @@ import UIKit
 
 #if os(macOS)
 final class HouseHippoDelegate: NSObject, NSApplicationDelegate {
-    func applicationDidFinishLaunching(_ notification: Notification) { NSApplication.shared.registerForRemoteNotifications(matching: []) }
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        guard !HouseHippoRuntime.isUITesting else { return }
+        NSApplication.shared.registerForRemoteNotifications(matching: [])
+    }
     func application(_ application: NSApplication, userDidAcceptCloudKitShareWith metadata: CKShare.Metadata) { acceptHousehold(metadata) }
 }
 #else
 final class HouseHippoDelegate: NSObject, UIApplicationDelegate {
     func application(_ application: UIApplication, didFinishLaunchingWithOptions options: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
-        application.registerForRemoteNotifications()
+        if !HouseHippoRuntime.isUITesting { application.registerForRemoteNotifications() }
         return true
     }
     func application(_ application: UIApplication, configurationForConnecting session: UISceneSession, options: UIScene.ConnectionOptions) -> UISceneConfiguration {

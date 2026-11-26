@@ -1,0 +1,29 @@
+name: HouseHippo tests
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: tests-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  regression-and-build:
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Show toolchain
+        run: |
+          xcodebuild -version
+          python3 --version
+      - name: Run regression checks, native tests, and both platform builds
+        run: python3 Tests/run_all.py --skip-ui --results TestResults/ci
+      - name: Upload test logs and coverage reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: househippo-test-results
+          path: TestResults/ci
+          retention-days: 14

@@ -31,16 +31,15 @@ Build without signing:
 xcodebuild -project HouseHippo.xcodeproj -scheme HouseHippo -sdk macosx -derivedDataPath /tmp/HouseHippo-build CODE_SIGNING_ALLOWED=NO build
 ```
 
-Run focused checks on macOS with Xcode's Swift compiler installed:
+Run the full test suite on macOS with Xcode and Python 3.9+:
 
 ```sh
-python3 Tests/check_schedule.py
-python3 Tests/check_storage.py
-python3 Tests/check_inventory.py
-python3 Tests/check_sync_policy.py
-python3 Tests/check_sync_failures.py
-python3 Tests/check_household_repair.py
+python3 Tests/run_all.py
 ```
+
+This runs native XCTest model/storage tests, all focused regression scripts, macOS and iOS Simulator builds, and isolated macOS UI tests. Logs, JUnit summaries, coverage, and Xcode result bundles are saved under `TestResults/`. Use `--skip-ui` without an interactive desktop, or `--layer native`, `--layer regression`, `--layer build`, or `--layer ui` for a focused run.
+
+In Xcode, select **HouseHippoTests** or **HouseHippoUITests** and choose **Product → Test** on My Mac. UI tests use a separate offline household and preferences, with Apple sync and notifications disabled. See [the test guide](Tests/README.md) for coverage, isolation, CI, and signed-device integration checks.
 
 Private backups, databases, build archives, and signing credentials are excluded by `.gitignore`.
 

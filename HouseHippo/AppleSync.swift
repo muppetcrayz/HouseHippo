@@ -8,7 +8,7 @@ import EventKit
     @Published var conflicts: [AppleSyncConflict] = []
     @Published var busy = false
     private let cloud = CloudStore.shared
-    private let storage = UserDefaults.standard
+    private let storage = HouseHippoRuntime.defaults
     let reminders = AppleRemindersAdapter()
     private var timer: Task<Void, Never>?
     private var queued: Task<Void, Never>?
@@ -49,6 +49,7 @@ import EventKit
     }
     #endif
     func start() {
+        guard !HouseHippoRuntime.isUITesting else { return }
         guard !started else { return }; started = true
         do {
             let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("HouseHippo/AppleSync", isDirectory: true)
@@ -75,6 +76,7 @@ import EventKit
         #endif
     }
     func request() {
+        guard !HouseHippoRuntime.isUITesting else { return }
         #if os(macOS)
         guard started else { start(); return }
         guard stateReady else { return }
@@ -461,7 +463,7 @@ struct AppleSyncSettingsView: View {
         for calendar in calendars where config.calendarOwners[calendar.calendarIdentifier] == nil {
             let personal = calendar.title.lowercased().contains("personal")
             config.calendarOwners[calendar.calendarIdentifier] = personal
-                ? (UserDefaults.standard.string(forKey: "househippo.person") ?? Reminder.Owner.me.rawValue)
+                ? (HouseHippoRuntime.defaults.string(forKey: "househippo.person") ?? Reminder.Owner.me.rawValue)
                 : Reminder.Owner.shared.rawValue
         }
     }

@@ -6,6 +6,12 @@
 	objectVersion = 56;
 	objects = {
 
+/* Begin PBXContainerItemProxy section */
+		AE0000000000000000000001 = {isa = PBXContainerItemProxy; containerPortal = A00000000000000000000001; proxyType = 1; remoteGlobalIDString = A00000000000000000000005; remoteInfo = HouseHippo; };
+/* End PBXContainerItemProxy section */
+/* Begin PBXTargetDependency section */
+		AE0000000000000000000002 = {isa = PBXTargetDependency; target = A00000000000000000000005; targetProxy = AE0000000000000000000001; };
+/* End PBXTargetDependency section */
 /* Begin PBXBuildFile section */
 		910000000000000000000001 /* HouseHippo/SyncPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 910000000000000000000002 /* HouseHippo/SyncPolicy.swift */; };
 		930000000000000000000001 /* HouseHippo/AppleRemindersSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = 930000000000000000000002 /* HouseHippo/AppleRemindersSync.swift */; };
@@ -23,6 +29,24 @@
 		C00000000000000000000003 /* HouseHippo/HouseholdSharing.swift in Sources */ = {isa = PBXBuildFile; fileRef = C00000000000000000000004 /* HouseHippo/HouseholdSharing.swift */; };
 		D00000000000000000000001 /* HouseHippo/Recurrence.swift in Sources */ = {isa = PBXBuildFile; fileRef = D00000000000000000000002 /* HouseHippo/Recurrence.swift */; };
 		E00000000000000000000001 /* HouseHippo/Notes.swift in Sources */ = {isa = PBXBuildFile; fileRef = E00000000000000000000002 /* HouseHippo/Notes.swift */; };
+		AC0000000000000000000000 = {isa = PBXBuildFile; fileRef = 930000000000000000000002; };
+		AC0000000000000000000001 = {isa = PBXBuildFile; fileRef = 940000000000000000000002; };
+		AC0000000000000000000002 = {isa = PBXBuildFile; fileRef = C00000000000000000000002; };
+		AC0000000000000000000003 = {isa = PBXBuildFile; fileRef = 950000000000000000000002; };
+		AC0000000000000000000004 = {isa = PBXBuildFile; fileRef = 992000000000000000000002; };
+		AC0000000000000000000005 = {isa = PBXBuildFile; fileRef = 970000000000000000000002; };
+		AC0000000000000000000006 = {isa = PBXBuildFile; fileRef = 960000000000000000000002; };
+		AC0000000000000000000007 = {isa = PBXBuildFile; fileRef = A00000000000000000000008; };
+		AC0000000000000000000008 = {isa = PBXBuildFile; fileRef = C00000000000000000000004; };
+		AC0000000000000000000009 = {isa = PBXBuildFile; fileRef = 991000000000000000000002; };
+		AC000000000000000000000A = {isa = PBXBuildFile; fileRef = 990000000000000000000002; };
+		AC000000000000000000000B = {isa = PBXBuildFile; fileRef = E00000000000000000000002; };
+		AC000000000000000000000C = {isa = PBXBuildFile; fileRef = D00000000000000000000002; };
+		AC000000000000000000000D = {isa = PBXBuildFile; fileRef = 910000000000000000000002; };
+		AC000000000000000000000E = {isa = PBXBuildFile; fileRef = 980000000000000000000002; };
+		AC000000000000000000000F = {isa = PBXBuildFile; fileRef = AB000000000000000000000F; };
+		AC0000000000000000000010 = {isa = PBXBuildFile; fileRef = AB0000000000000000000010; };
+		AD0000000000000000000002 = {isa = PBXBuildFile; fileRef = AD0000000000000000000001; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -43,6 +67,11 @@
 		C00000000000000000000004 /* HouseHippo/HouseholdSharing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HouseHippo/HouseholdSharing.swift; sourceTree = "<group>"; };
 		D00000000000000000000002 /* HouseHippo/Recurrence.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HouseHippo/Recurrence.swift; sourceTree = "<group>"; };
 		E00000000000000000000002 /* HouseHippo/Notes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HouseHippo/Notes.swift; sourceTree = "<group>"; };
+		AB000000000000000000000F = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tests/Native/ModelTests.swift; sourceTree = "<group>"; };
+		AB0000000000000000000010 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tests/Native/StorageTests.swift; sourceTree = "<group>"; };
+		AD0000000000000000000001 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tests/UI/HouseHippoUITests.swift; sourceTree = "<group>"; };
+		AA1000000000000000000002 = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; path = HouseHippoTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		AA2000000000000000000002 = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; path = HouseHippoUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -53,12 +82,15 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		AA1000000000000000000004 = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+		AA2000000000000000000004 = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
 		A00000000000000000000003 = {
 			isa = PBXGroup;
 			children = (
+				AF0000000000000000000001 /* Tests */,
 				992000000000000000000002 /* HouseHippo/Design.swift */,
 				991000000000000000000002 /* HouseHippo/Inventory.swift */,
 				990000000000000000000002 /* HouseHippo/InventoryModel.swift */,
@@ -82,11 +114,14 @@
 		A00000000000000000000004 /* Products */ = {
 			isa = PBXGroup;
 			children = (
+		AA2000000000000000000002,
+		AA1000000000000000000002,
 				A00000000000000000000009 /* HouseHippo.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
 		};
+		AF0000000000000000000001 /* Tests */ = {isa = PBXGroup; children = (AB000000000000000000000F,AB0000000000000000000010,AD0000000000000000000001,); name = Tests; sourceTree = "<group>"; };
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
@@ -107,6 +142,8 @@
 			productReference = A00000000000000000000009 /* HouseHippo.app */;
 			productType = "com.apple.product-type.application";
 		};
+		AA1000000000000000000001 = {isa = PBXNativeTarget; buildConfigurationList = AA1000000000000000000006; buildPhases = (AA1000000000000000000003,AA1000000000000000000004,AA1000000000000000000005,); buildRules = (); dependencies = (); name = HouseHippoTests; productName = HouseHippoTests; productReference = AA1000000000000000000002; productType = "com.apple.product-type.bundle.unit-test"; };
+		AA2000000000000000000001 = {isa = PBXNativeTarget; buildConfigurationList = AA2000000000000000000006; buildPhases = (AA2000000000000000000003,AA2000000000000000000004,AA2000000000000000000005,); buildRules = (); dependencies = (AE0000000000000000000002,); name = HouseHippoUITests; productName = HouseHippoUITests; productReference = AA2000000000000000000002; productType = "com.apple.product-type.bundle.ui-testing"; };
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -142,6 +179,8 @@
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
+		AA2000000000000000000001,
+		AA1000000000000000000001,
 				A00000000000000000000005 /* HouseHippo */,
 			);
 		};
@@ -156,6 +195,8 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		AA1000000000000000000005 = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+		AA2000000000000000000005 = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
@@ -181,6 +222,8 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		AA1000000000000000000003 = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (AC0000000000000000000000,AC0000000000000000000001,AC0000000000000000000002,AC0000000000000000000003,AC0000000000000000000004,AC0000000000000000000005,AC0000000000000000000006,AC0000000000000000000007,AC0000000000000000000008,AC0000000000000000000009,AC000000000000000000000A,AC000000000000000000000B,AC000000000000000000000C,AC000000000000000000000D,AC000000000000000000000E,AC000000000000000000000F,AC0000000000000000000010,); runOnlyForDeploymentPostprocessing = 0; };
+		AA2000000000000000000003 = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (AD0000000000000000000002,); runOnlyForDeploymentPostprocessing = 0; };
 /* End PBXSourcesBuildPhase section */
 
 /* Begin XCBuildConfiguration section */
@@ -205,6 +248,8 @@
 		A0000000000000000000000E /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = HouseHippo/HouseHippoiOS.entitlements;
@@ -276,12 +321,67 @@
 			};
 			name = Release;
 		};
+		AA1000000000000000000007 = {isa = XCBuildConfiguration; buildSettings = {ALWAYS_SEARCH_USER_PATHS = NO; GENERATE_INFOPLIST_FILE = YES; PRODUCT_BUNDLE_IDENTIFIER = com.danturner.HouseHippoTests; PRODUCT_NAME = "$(TARGET_NAME)"; SWIFT_VERSION = 5.0; SUPPORTED_PLATFORMS = "macosx iphonesimulator iphoneos"; SDKROOT = auto; MACOSX_DEPLOYMENT_TARGET = 14.0; IPHONEOS_DEPLOYMENT_TARGET = 17.0; TARGETED_DEVICE_FAMILY = "1,2"; CODE_SIGN_STYLE = Automatic; DEVELOPMENT_TEAM = E25BK4VCB2; ENABLE_HARDENED_RUNTIME = NO; SWIFT_OPTIMIZATION_LEVEL = "-Onone"; SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG HOUSEHIPPO_TESTING";}; name = Debug; };
+		AA1000000000000000000008 = {isa = XCBuildConfiguration; buildSettings = {ALWAYS_SEARCH_USER_PATHS = NO; GENERATE_INFOPLIST_FILE = YES; PRODUCT_BUNDLE_IDENTIFIER = com.danturner.HouseHippoTests; PRODUCT_NAME = "$(TARGET_NAME)"; SWIFT_VERSION = 5.0; SUPPORTED_PLATFORMS = "macosx iphonesimulator iphoneos"; SDKROOT = auto; MACOSX_DEPLOYMENT_TARGET = 14.0; IPHONEOS_DEPLOYMENT_TARGET = 17.0; TARGETED_DEVICE_FAMILY = "1,2"; CODE_SIGN_STYLE = Automatic; DEVELOPMENT_TEAM = E25BK4VCB2; ENABLE_HARDENED_RUNTIME = NO; SWIFT_OPTIMIZATION_LEVEL = "-Onone"; SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG HOUSEHIPPO_TESTING";}; name = Release; };
+		AA2000000000000000000007 = {isa = XCBuildConfiguration; buildSettings = {ALWAYS_SEARCH_USER_PATHS = NO; GENERATE_INFOPLIST_FILE = YES; PRODUCT_BUNDLE_IDENTIFIER = com.danturner.HouseHippoUITests; PRODUCT_NAME = "$(TARGET_NAME)"; SWIFT_VERSION = 5.0; SUPPORTED_PLATFORMS = macosx; SDKROOT = macosx; MACOSX_DEPLOYMENT_TARGET = 14.0; IPHONEOS_DEPLOYMENT_TARGET = 17.0; TARGETED_DEVICE_FAMILY = "1,2"; CODE_SIGN_STYLE = Automatic; DEVELOPMENT_TEAM = E25BK4VCB2; ENABLE_HARDENED_RUNTIME = NO; SWIFT_OPTIMIZATION_LEVEL = "-Onone"; TEST_TARGET_NAME = HouseHippo;}; name = Debug; };
+		AA2000000000000000000008 = {isa = XCBuildConfiguration; buildSettings = {ALWAYS_SEARCH_USER_PATHS = NO; GENERATE_INFOPLIST_FILE = YES; PRODUCT_BUNDLE_IDENTIFIER = com.danturner.HouseHippoUITests; PRODUCT_NAME = "$(TARGET_NAME)"; SWIFT_VERSION = 5.0; SUPPORTED_PLATFORMS = macosx; SDKROOT = macosx; MACOSX_DEPLOYMENT_TARGET = 14.0; IPHONEOS_DEPLOYMENT_TARGET = 17.0; TARGETED_DEVICE_FAMILY = "1,2"; CODE_SIGN_STYLE = Automatic; DEVELOPMENT_TEAM = E25BK4VCB2; ENABLE_HARDENED_RUNTIME = NO; SWIFT_OPTIMIZATION_LEVEL = "-Onone"; TEST_TARGET_NAME = HouseHippo;}; name = Release; };
+		AF1000000000000000000001 /* UITesting */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				SDKROOT = auto;
+			};
+			name = UITesting;
+		};
+		AF1000000000000000000002 /* UITesting */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG HOUSEHIPPO_UI_TESTING";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = "";
+				"CODE_SIGN_ENTITLEMENTS[sdk=macosx*]" = "";
+				CODE_SIGN_STYLE = Manual;
+				CODE_SIGN_IDENTITY = "-";
+				CURRENT_PROJECT_VERSION = 30;
+				DEVELOPMENT_TEAM = "";
+				ENABLE_APP_SANDBOX = NO;
+				ENABLE_HARDENED_RUNTIME = NO;
+				ENABLE_INCOMING_NETWORK_CONNECTIONS = NO;
+				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
+				ENABLE_RESOURCE_ACCESS_AUDIO_INPUT = NO;
+				ENABLE_RESOURCE_ACCESS_BLUETOOTH = NO;
+				ENABLE_RESOURCE_ACCESS_CALENDARS = YES;
+				ENABLE_RESOURCE_ACCESS_CAMERA = NO;
+				ENABLE_RESOURCE_ACCESS_CONTACTS = NO;
+				ENABLE_RESOURCE_ACCESS_LOCATION = NO;
+				ENABLE_RESOURCE_ACCESS_PRINTING = NO;
+				ENABLE_RESOURCE_ACCESS_USB = NO;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = HouseHippo/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = HouseHippo;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
+				INFOPLIST_KEY_NSRemindersFullAccessUsageDescription = "HouseHippo imports reminders and, when you enable two-way sync, syncs task additions, edits, completion and deletion with your selected Reminders lists.";
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.danturner.HouseHippo.UITesting;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = UITesting;
+		};
+		AF1000000000000000000003 = {isa = XCBuildConfiguration; buildSettings = {ALWAYS_SEARCH_USER_PATHS = NO; GENERATE_INFOPLIST_FILE = YES; PRODUCT_BUNDLE_IDENTIFIER = com.danturner.HouseHippoUITests; PRODUCT_NAME = "$(TARGET_NAME)"; SWIFT_VERSION = 5.0; SUPPORTED_PLATFORMS = macosx; SDKROOT = macosx; MACOSX_DEPLOYMENT_TARGET = 14.0; IPHONEOS_DEPLOYMENT_TARGET = 17.0; TARGETED_DEVICE_FAMILY = "1,2"; CODE_SIGN_STYLE = Manual; CODE_SIGN_IDENTITY = "-"; DEVELOPMENT_TEAM = ""; ENABLE_HARDENED_RUNTIME = NO; SWIFT_OPTIMIZATION_LEVEL = "-Onone"; TEST_TARGET_NAME = HouseHippo;}; name = UITesting; };
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
 		A00000000000000000000002 /* Build configuration list for PBXProject "HouseHippo" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
+				AF1000000000000000000001 /* UITesting */,
 				A00000000000000000000006 /* Debug */,
 				A00000000000000000000007 /* Release */,
 			);
@@ -291,12 +391,15 @@
 		A0000000000000000000000A /* Build configuration list for PBXNativeTarget "HouseHippo" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
+				AF1000000000000000000002 /* UITesting */,
 				A0000000000000000000000E /* Debug */,
 				A0000000000000000000000F /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
+		AA1000000000000000000006 = {isa = XCConfigurationList; buildConfigurations = (AA1000000000000000000007,AA1000000000000000000008,); defaultConfigurationIsVisible = 0; defaultConfigurationName = Debug; };
+		AA2000000000000000000006 = {isa = XCConfigurationList; buildConfigurations = (AF1000000000000000000003,AA2000000000000000000007,AA2000000000000000000008,); defaultConfigurationIsVisible = 0; defaultConfigurationName = Debug; };
 /* End XCConfigurationList section */
 	};
 	rootObject = A00000000000000000000001 /* Project object */;

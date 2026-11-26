@@ -5,10 +5,17 @@ root=Path(__file__).resolve().parents[1]
 with tempfile.TemporaryDirectory(prefix='HouseHippo-AppleScript-checks-') as directory:
     directory=Path(directory)
     paths=[]
-    for name,marker in [('AppleNotesImport','static let scriptSource = #"""'),('AppleNotesSync','static let source = #"""')]:
-        source=(root/f'HouseHippo/{name}.swift').read_text().split(marker,1)[1].split('"""#',1)[0]
-        assert not re.search(r'set\s+plaintext\s+to', source, re.IGNORECASE), 'Local variable collides with the read-only Notes plaintext property'
-        path=directory/(name+'.applescript');path.write_text(source);paths.append(str(path))
+    # The Apple Notes import script is a Swift multi-line string in AppleNotesReader.read().
+    body=(root/'HouseHippo/Notes.swift').read_text().split('static func read()',1)[1]
+    match=re.search(r'let source = """\n(.*?)\n( *)"""', body, re.DOTALL)
+    assert match, 'Could not find the Apple Notes import script in Notes.swift'
+    indent=match.group(2)
+    lines=match.group(1).split('\n')
+    assert all(not line.strip() or line.startswith(indent) for line in lines), 'Unexpected script indentation'
+    assert '\\' not in match.group(1), 'Escapes in the Swift string need handling before compiling the script'
+    source='\n'.join(line[len(indent):] for line in lines)
+    assert not re.search(r'set\s+plaintext\s+to', source, re.IGNORECASE), 'Local variable collides with the read-only Notes plaintext property'
+    path=directory/'AppleNotesImport.applescript';path.write_text(source);paths.append(str(path))
     code=r'''
 import Foundation
 import AppKit

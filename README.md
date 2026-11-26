@@ -13,13 +13,13 @@ A native SwiftUI app for household tasks, meal planning, and groceries on iOS 17
 - Inventory collections with independent fields, CSV import, search, and editable records.
 - Weekly dinner planning and a categorized grocery checklist.
 - iCloud syncing and household sharing.
-- Optional Apple Reminders syncing through one configured Mac. Flexible tasks stay in HouseHippo.
+- Tasks are filed in Apple Reminders lists, so HouseHippo needs Reminders access on each device to create or edit tasks. Optional two-way syncing with Apple Reminders runs through one configured Mac. Flexible tasks stay in HouseHippo.
 
 ## Getting started
 
 Open `HouseHippo.xcodeproj` in Xcode, select the HouseHippo scheme, and choose My Mac or an iPhone simulator.
 
-For your own deployment, configure your development team, bundle identifier, and CloudKit container. Signed builds are required for iCloud features. Keep identifiers and the CloudKit environment consistent across devices.
+For your own deployment, configure your development team, bundle identifier, and CloudKit container. Signed builds are required for iCloud features. Allow Reminders access when prompted: the task editor saves only after you choose a writable Reminders list. Keep identifiers and the CloudKit environment consistent across devices.
 
 Household labels filter tasks; they are not privacy boundaries. Household participants can access shared household content, including personally assigned tasks.
 

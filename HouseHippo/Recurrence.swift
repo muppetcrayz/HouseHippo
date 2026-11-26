@@ -25,6 +25,27 @@ extension Reminder {
         deferredUntil = next
     }
 
+    /// The task editor's save rules. `original` is the version the editor opened with.
+    func preparedForEditorSave(original: Reminder?, calendar: Calendar = .current) -> Reminder {
+        var result = self
+        // Choosing a new due date replaces a Move to tomorrow / Move to next repeat override.
+        if let original, original.date != date { result.deferredUntil = nil }
+        if !isNotification && !isFlexibleTask && isAllDay {
+            // All-day tasks keep no clock time, so their first occurrence is never skipped.
+            result.date = calendar.startOfDay(for: date)
+            result.recurrenceAnchor = recurrenceAnchor.map { calendar.startOfDay(for: $0) }
+        }
+        result.recurrenceAnchor = result.recurrenceAnchor ?? result.date
+        result.recurrenceImportVersion = 1
+        if frequency == .weekly {
+            result.selectedWeekdays = weekdays
+            // Align to the first selected day on or after the chosen date. Saving never skips an overdue occurrence.
+            let start = calendar.startOfDay(for: result.date)
+            result.date = result.nextWeeklyOccurrence(after: start.addingTimeInterval(-1), calendar: calendar) ?? result.date
+        }
+        return result
+    }
+
     func isDelayed(at now: Date = Date(), calendar: Calendar = .current) -> Bool {
         guard canMoveToTomorrow, let deferredUntil else { return false }
         return calendar.startOfDay(for: deferredUntil) > calendar.startOfDay(for: now)
@@ -194,13 +215,15 @@ extension Reminder {
         let currentMonth = calendar.dateInterval(of: .month, for: reference)!.start
         let elapsed = max(0, calendar.dateComponents([.month], from: firstMonth, to: currentMonth).month ?? 0)
         let time = calendar.dateComponents([.hour, .minute], from: anchor)
+        // Occurrences carry no seconds (and no time when all day); compare the anchor the same way.
+        let earliest = isAllDay ? calendar.startOfDay(for: anchor) : calendar.date(from: calendar.dateComponents([.year, .month, .day, .hour, .minute], from: anchor)) ?? anchor
         for offset in elapsed..<(elapsed + 24 * monthlyStep + 1) where offset % monthlyStep == 0 {
             guard let month = calendar.date(byAdding: .month, value: offset, to: firstMonth), let range = calendar.range(of: .day, in: .month, for: month) else { continue }
             let day = monthlyOnLastDay == true ? range.count : (monthlyDay ?? calendar.component(.day, from: anchor))
             guard range.contains(day) else { continue } // Fixed day 31 skips short months; it never drifts to day 28.
             var components = calendar.dateComponents([.year, .month], from: month)
             components.day = day; components.hour = isAllDay ? 0 : time.hour; components.minute = isAllDay ? 0 : time.minute
-            if let next = calendar.date(from: components), next > reference, next >= anchor { return withinRecurrenceEnd(next) ? next : nil }
+            if let next = calendar.date(from: components), next > reference, next >= earliest { return withinRecurrenceEnd(next) ? next : nil }
         }
         return nil
     }

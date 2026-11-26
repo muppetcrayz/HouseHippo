@@ -455,6 +455,57 @@ do {
 }
 print("Next-repeat checks passed: skip without completion, repeated skips, and recurrence end.")
 '''
+checks += r'''
+do {
+    func at(_ year: Int, _ month: Int, _ day: Int, _ hour: Int = 0, _ minute: Int = 0, _ second: Int = 0) -> Date {
+        calendar.date(from: DateComponents(year: year, month: month, day: day, hour: hour, minute: minute, second: second))!
+    }
+    let thursday = at(2030, 11, 7, 10)
+    // Saving an overdue weekly task without changing its date keeps it overdue.
+    var weekly = Reminder(title: "Trash", message: "", date: at(2030, 11, 4), frequency: .weekly)
+    weekly.kind = .task; weekly.allDay = true; weekly.selectedWeekdays = [2]
+    precondition(weekly.isOverdue(at: thursday))
+    var renamed = weekly; renamed.title = "Trash bins"
+    renamed = renamed.preparedForEditorSave(original: weekly)
+    precondition(renamed.date == at(2030, 11, 4) && renamed.isOverdue(at: thursday) && renamed.history.isEmpty)
+    // A new weekly task still starts on the first selected day on or after its date.
+    var newWeekly = Reminder(title: "New", message: "", date: at(2030, 11, 7, 11), frequency: .weekly)
+    newWeekly.kind = .task; newWeekly.selectedWeekdays = [2]
+    precondition(newWeekly.preparedForEditorSave(original: nil).date == at(2030, 11, 11, 11))
+    // A new due date replaces a delay; other edits keep it.
+    var delayed = Reminder(title: "Call", message: "", date: at(2030, 11, 7), frequency: .once)
+    delayed.kind = .task; delayed.allDay = true; delayed.hasDueDate = true
+    delayed.moveToTomorrow(at: thursday)
+    var titleOnly = delayed; titleOnly.title = "Call back"
+    precondition(titleOnly.preparedForEditorSave(original: delayed).deferredUntil == at(2030, 11, 8))
+    var redated = delayed; redated.date = at(2030, 12, 4)
+    redated = redated.preparedForEditorSave(original: delayed)
+    precondition(redated.deferredUntil == nil && redated.effectiveDate == at(2030, 12, 4) && !redated.isDueToday(at: at(2030, 11, 8, 9)))
+    // A new all-day monthly task is due on its first day, not a month later.
+    var monthly = Reminder(title: "Rent", message: "", date: at(2030, 11, 7, 11, 22, 37), frequency: .monthly)
+    monthly.kind = .task; monthly.allDay = true; monthly.hasDueDate = true
+    let savedMonthly = monthly.preparedForEditorSave(original: nil)
+    precondition(savedMonthly.date == at(2030, 11, 7) && savedMonthly.isDueToday(at: thursday) && !savedMonthly.isOverdue(at: thursday))
+    // Older saved tasks with a clock time on an all-day anchor, or seconds on a timed anchor, are also due on day one.
+    precondition(monthly.isDueToday(at: thursday))
+    var timedMonthly = Reminder(title: "Timed", message: "", date: at(2030, 11, 7, 11, 22, 37), frequency: .monthly)
+    timedMonthly.kind = .task
+    precondition(timedMonthly.isDueToday(at: thursday) && timedMonthly.nextScheduledOccurrence(after: thursday) == at(2030, 11, 7, 11, 22))
+    // Rolling notifications never fire before a future start date.
+    let start = Date().addingTimeInterval(14 * 86400)
+    var weeklyAlert = Reminder(title: "Later", message: "", date: start, frequency: .weekly)
+    weeklyAlert.kind = .notification
+    weeklyAlert.selectedWeekdays = [calendar.component(.weekday, from: start)]
+    let alerts = upcoming(weeklyAlert, count: 3)
+    precondition(alerts.count == 3 && alerts.allSatisfy { $0 >= calendar.date(bySetting: .second, value: 0, of: start)!.addingTimeInterval(-60) })
+    precondition(calendar.isDate(alerts[0], inSameDayAs: start))
+    var monthlyAlert = Reminder(title: "Later monthly", message: "", date: start, frequency: .monthly, monthlyEvery: 2)
+    monthlyAlert.kind = .notification
+    let monthlyAlerts = upcoming(monthlyAlert, count: 2)
+    precondition(monthlyAlerts.count == 2 && calendar.isDate(monthlyAlerts[0], inSameDayAs: start))
+}
+print("Editor save checks passed: overdue weekly kept, new weekly alignment, delayed redates, all-day and timed monthly first occurrences, future notification starts.")
+'''
 with tempfile.TemporaryDirectory(prefix="NotifyMe-checks-") as directory:
     script = Path(directory) / "Checks.swift"
     script.write_text("import Foundation\n" + model + method + "\n" + checks)

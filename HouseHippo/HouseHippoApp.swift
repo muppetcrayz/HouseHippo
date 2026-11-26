@@ -575,7 +575,8 @@ enum BillCalendarImport {
                     for value in raw.split(separator: ",") { guard let date = day(String(value)) else { throw invalid("Invalid excluded date") }; bill.excluded.append(date) }
                 }
                 bill.sourceUID = uid; bill.notes = unescape(event["DESCRIPTION"]?.first ?? "")
-                let regex = try NSRegularExpression(pattern: #"\$\s*([0-9]+(?:,[0-9]{3})*(?:\.[0-9]{1,2})?)(?![0-9.])"#)
+                // A trailing period or comma ends the sentence; a digit after either means a longer number.
+                let regex = try NSRegularExpression(pattern: #"\$\s*((?:[0-9]{1,3}(?:,[0-9]{3})+|[0-9]+)(?:\.[0-9]{1,2})?)(?![0-9]|[.,][0-9])"#)
                 let ns = (title + "\n" + bill.notes) as NSString
                 let matches = regex.matches(in: ns as String, range: NSRange(location: 0, length: ns.length))
                 if matches.count == 1 { bill.cents = MoneyEntry.amount(ns.substring(with: matches[0].range(at: 1)).replacingOccurrences(of: ",", with: "")) ?? 0 }
@@ -988,10 +989,14 @@ final class NotificationDelegate: NSObject, UNUserNotificationCenterDelegate, Ob
         #else
         guard status == .authorized || status == .provisional else { center.removeAllPendingNotificationRequests(); return }
         let person = Reminder.devicePerson
-        let active = reminders.filter { $0.shouldNotify(on: person) && ($0.frequency != .once || $0.date > Date()) }
+        let now = Date()
+        let active = reminders.filter { $0.shouldNotify(on: person) && ($0.frequency != .once || $0.date > now) }
+        // Native repeating triggers match only the clock time and weekday/day, so a repeat
+        // that has not started yet is scheduled date by date until its start passes.
+        func rolling(_ reminder: Reminder) -> Bool { reminder.usesRollingNotifications || (reminder.frequency != .once && reminder.date > now) }
         // Reserve one request per native repeating reminder; share the remainder across custom schedules.
-        let custom = active.filter { $0.usesRollingNotifications }
-        let native = active.filter { !$0.usesRollingNotifications }
+        let custom = active.filter(rolling)
+        let native = active.filter { !rolling($0) }
         let nativeCount = native.reduce(0) { $0 + ($1.frequency == .weekly ? $1.weekdays.count : 1) }
         guard nativeCount + custom.count <= 60 else {
             center.removeAllPendingNotificationRequests()
@@ -1008,7 +1013,7 @@ final class NotificationDelegate: NSObject, UNUserNotificationCenterDelegate, Ob
                 if reminder.shortcutURL != nil {
                     content.userInfo["shortcutName"] = reminder.shortcutName?.trimmingCharacters(in: .whitespacesAndNewlines)
                 }
-                if reminder.usesRollingNotifications {
+                if rolling(reminder) {
                     let dates: [Date]
                     if reminder.frequency == .flexible {
                         // A due-month nudge at 9am; overdue tasks remain visible until completed.
@@ -1046,7 +1051,10 @@ final class NotificationDelegate: NSObject, UNUserNotificationCenterDelegate, Ob
         #endif
     }
     private func upcoming(_ reminder: Reminder, count: Int) -> [Date] {
-        var cursor = Date()
+        // Start from the reminder's own date when it is later, so nothing fires before it starts.
+        // Weekly and monthly occurrences fall on the whole minute, so start at that minute.
+        let start = Calendar.current.dateInterval(of: .minute, for: reminder.date)?.start ?? reminder.date
+        var cursor = max(Date(), start.addingTimeInterval(-1))
         var result: [Date] = []
         for _ in 0..<max(0, count) {
             guard let next = reminder.nextScheduledOccurrence(after: cursor) else { break }
@@ -1424,11 +1432,17 @@ struct ReminderEditor: View {
     @EnvironmentObject private var store: ReminderStore
     @Environment(\.dismiss) private var dismiss
     @State var reminder: Reminder
+    private let original: Reminder
     @State private var saving = false
     @State private var lists: [EKCalendar] = []
     @State private var selectedListID = ""
     @State private var loadingLists = true
     @State private var listError: String?
+
+    init(reminder: Reminder) {
+        _reminder = State(initialValue: reminder)
+        original = reminder
+    }
 
     private func canSelect(_ list: EKCalendar) -> Bool {
         let config = AppleSyncService.shared.settings()
@@ -1594,14 +1608,9 @@ struct ReminderEditor: View {
                         reminder.title = reminder.title.trimmingCharacters(in: .whitespacesAndNewlines)
                         let shortcutName = reminder.shortcutName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
                         reminder.shortcutName = shortcutName.isEmpty ? nil : shortcutName
-                        reminder.recurrenceAnchor = reminder.recurrenceAnchor ?? reminder.date
-                        reminder.recurrenceImportVersion = 1
-                        if reminder.frequency == .weekly {
-                            reminder.selectedWeekdays = reminder.weekdays
-                            let start = Calendar.current.startOfDay(for: max(Date(), reminder.date))
-                            reminder.date = reminder.nextWeeklyOccurrence(after: start.addingTimeInterval(-1)) ?? reminder.date
-                        }
-                        Task { await store.save(reminder); dismiss() } }.disabled(saving || !validList || reminder.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        // Save a local copy: changing the editor's date here would rerun its onChange handler.
+                        let prepared = reminder.preparedForEditorSave(original: original)
+                        Task { await store.save(prepared); dismiss() } }.disabled(saving || !validList || reminder.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
             }
         }

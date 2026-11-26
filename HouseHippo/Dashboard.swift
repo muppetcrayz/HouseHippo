@@ -84,6 +84,7 @@ struct HomeDashboard: View {
                 Button("Add task", systemImage: "plus") {
                     var task = Reminder(title: "", message: "", date: Date().addingTimeInterval(3600), frequency: .once)
                     task.kind = .task; task.owner = owner
+                    task.allDay = true // Match the Tasks page's Add task.
                     editing = task
                 }.buttonStyle(.borderedProminent).tint(.teal)
             }

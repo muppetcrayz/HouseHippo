@@ -129,6 +129,15 @@ checks = r'''
         cancelled.cancel()
         do { _ = try await cancelled.value; preconditionFailure("Cancelled import succeeded") } catch is CancellationError {}
         print("Background parsing: 1000 old series in \(began.duration(to: clock.now)), main actor serviced \(ticks) ticks; cancellation passed.")
+        func amountSource(_ description: String) -> String {
+            "BEGIN:VCALENDAR\nBEGIN:VEVENT\nUID:amount-check\nSUMMARY:Water bill\nDTSTART;VALUE=DATE:20261205\nRRULE:FREQ=MONTHLY\nDESCRIPTION:\(description)\nEND:VEVENT\nEND:VCALENDAR\n"
+        }
+        for (description, cents) in [("Pay $50", 5000), ("Pay $50.", 5000), ("Amount: $1,234.56.", 123456), ("Autopay $42.10, card on file", 4210),
+                                     ("$85 (approx)", 8500), ("Total $1,234", 123400), ("About $12.345", 0), ("Odd $1,2345", 0), ("Pay $5 or $6", 0)] {
+            let proposed = try BillCalendarImport.parse(amountSource(description)).bills.first?.cents
+            precondition(proposed == cents, "Amount for " + description)
+        }
+        print("Calendar amount checks passed: sentence-ending periods and commas, thousands separators, malformed and ambiguous values.")
         print("Budget and recurring checks passed: source paycheck/formula matches, unrounded totals, actual/estimated income, missing/zero inputs, signed allocations, imports, exclusions, bounds, leap years, month ends, payday boundaries, DST, encoding.")
     }
 }

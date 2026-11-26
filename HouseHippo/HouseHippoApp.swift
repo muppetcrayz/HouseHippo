@@ -72,6 +72,14 @@ struct Reminder: Identifiable, Codable, Equatable {
         return components.url
     }
     var shouldNotify: Bool { isNotification && enabled && !completed && frequency != .anytime && hasDueDate != false }
+    func shouldNotify(on person: Owner) -> Bool {
+        shouldNotify && (owner == .shared || owner == person)
+    }
+    static var devicePerson: Owner {
+        let stored = UserDefaults.standard.string(forKey: "househippo.person")
+        let person = stored.flatMap(Owner.init(rawValue:)) ?? .me
+        return person == .shared ? .me : person
+    }
     var owner: Owner = .shared
     // Retain original imported text for recovery; taskNote is the editable task content.
     var notes: String = ""
@@ -979,7 +987,8 @@ final class NotificationDelegate: NSObject, UNUserNotificationCenterDelegate, Ob
         center.removeAllDeliveredNotifications()
         #else
         guard status == .authorized || status == .provisional else { center.removeAllPendingNotificationRequests(); return }
-        let active = reminders.filter { $0.shouldNotify && ($0.frequency != .once || $0.date > Date()) }
+        let person = Reminder.devicePerson
+        let active = reminders.filter { $0.shouldNotify(on: person) && ($0.frequency != .once || $0.date > Date()) }
         // Reserve one request per native repeating reminder; share the remainder across custom schedules.
         let custom = active.filter { $0.usesRollingNotifications }
         let native = active.filter { !$0.usesRollingNotifications }
@@ -1155,6 +1164,7 @@ struct HouseHippoHome: View {
             #endif
         }
         .tint(.teal)
+        .onChange(of: person) { _, _ in Task { await store.refresh() } }
         .alert("HouseHippo", isPresented: Binding(get: { store.error != nil || store.transferStatus != nil || notificationDelegate.openError != nil }, set: { if !$0 { store.error = nil; store.transferStatus = nil; notificationDelegate.openError = nil } })) {
             Button("OK") { store.error = nil; store.transferStatus = nil; notificationDelegate.openError = nil }
         } message: { Text(store.error ?? store.transferStatus ?? notificationDelegate.openError ?? "") }
@@ -1240,6 +1250,7 @@ struct TaskList: View {
                     var item = Reminder(title: "", message: "", date: Date().addingTimeInterval(3600), frequency: .once)
                     item.kind = mode == .notifications ? .notification : .task
                     item.allDay = mode != .notifications
+                    if mode == .notifications { item.owner = Reminder.devicePerson }
                     if mode == .tasks, let owner = Reminder.Owner(rawValue: ownerFilter) { item.owner = owner }
                     editing = item
                 } }
@@ -1448,6 +1459,8 @@ struct ReminderEditor: View {
                     HippoField("Title", text: $reminder.title, prompt: "What needs doing?")
                     if reminder.isNotification {
                         HippoField("Notification message", text: $reminder.message)
+                        Picker("For", selection: $reminder.owner) { ForEach(Reminder.Owner.allCases, id: \.self) { Text($0.displayName).tag($0) } }
+                        Text("Alerts go to the assigned person's devices. Shared alerts go to both people. Choose who uses this device on the Dashboard.").font(.caption).foregroundStyle(.secondary)
                     } else {
                         Picker("List", selection: $selectedListID) {
                             Text("Choose a list…").tag("")

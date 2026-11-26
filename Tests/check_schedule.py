@@ -11,6 +11,24 @@ method = source[source.index("    private func upcoming"):source.index("\n}\n\n@
 checks = 'let calendar = Calendar.current\nlet oldDate = calendar.date(byAdding: .year, value: -10, to: Date())!\nfor unit in Reminder.IntervalUnit.allCases {\n    let reminder = Reminder(title: "Test", message: "", date: oldDate, frequency: .custom, interval: 3, unit: unit)\n    let dates = upcoming(reminder, count: 20)\n    precondition(dates.count == 20)\n    precondition(dates.allSatisfy { $0 > Date() })\n    precondition(zip(dates, dates.dropFirst()).allSatisfy { $0 < $1 })\n}\nlet future = Date().addingTimeInterval(3600)\nlet one = upcoming(Reminder(title: "Future", message: "", date: future, frequency: .custom), count: 1)\nprecondition(one == [future])\nlet january = calendar.date(from: DateComponents(year: 2030, month: 1, day: 31, hour: 9))!\nlet months = upcoming(Reminder(title: "Month end", message: "", date: january, frequency: .custom, unit: .months), count: 3)\nprecondition(months.map { calendar.component(.day, from: $0) } == [31, 28, 31])\nprint("Schedule checks passed: past anchors, all interval units, ordering, future starts, and month ends.")\n'
 checks += r'''
 do {
+    var alert = Reminder(title: "Personal", message: "", date: Date(), frequency: .daily)
+    alert.kind = .notification
+    for owner in Reminder.Owner.allCases {
+        alert.owner = owner
+        for person in [Reminder.Owner.me, .husband] {
+            precondition(alert.shouldNotify(on: person) == (owner == .shared || owner == person))
+        }
+    }
+    alert.enabled = false
+    precondition(!alert.shouldNotify(on: .me) && !alert.shouldNotify(on: .husband))
+    alert.enabled = true
+    alert.kind = .task
+    precondition(!alert.shouldNotify(on: .me) && !alert.shouldNotify(on: .husband))
+}
+print("Recipient checks passed: personal alerts stay assigned; shared alerts reach both; tasks and paused alerts stay silent.")
+'''
+checks += r'''
+do {
     let yesterday = calendar.date(byAdding: .day, value: -1, to: Date())!
     var dailyAlert = Reminder(title: "Daily alert", message: "", date: yesterday, frequency: .daily)
     dailyAlert.kind = .notification

@@ -44,6 +44,8 @@ python3 Tests/check_household_repair.py
 
 Private backups, databases, build archives, and signing credentials are excluded by `.gitignore`.
 
+Notifications use the **For** assignment: Sage and Dan receive only their own alerts; **Shared** alerts go to both. Set the correct person on each device's Dashboard. New notifications default to that person. Existing shared notifications keep their assignment; edit **For** to make them personal. After updating, open HouseHippo on both iPhones to replace previously queued alerts.
+
 ## Open an app from a notification
 
 On your iPhone, create a shortcut in Apple's Shortcuts app with an **Open App** action, choose the app (for example, Fertility Friend), and name the shortcut **Open Fertility Friend**. In HouseHippo's notification details, enter that exact name under **When tapped**, use **Test shortcut**, and save. Tapping the scheduled notification opens HouseHippo, then runs the shortcut. You may need to unlock your phone first.

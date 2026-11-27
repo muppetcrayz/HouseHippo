@@ -51,6 +51,18 @@ final class HouseHippoUITests: XCTestCase {
         app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", title)).firstMatch
     }
 
+    func testDashboardCalendarSetupIsViewOnlyAndCloses() {
+        navigate("Dashboard")
+        XCTAssertTrue(app.staticTexts["Today's calendar"].waitForExistence(timeout: 5))
+        app.buttons["Calendars"].click()
+        XCTAssertTrue(app.buttons["Connect Apple Calendar"].firstMatch.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "value == %@", "Choose one calendar for each person. Both appear on the Dashboard, regardless of the selected task profile. Events are view-only.")).firstMatch.exists)
+        XCTAssertFalse(app.buttons["Add event"].exists)
+        XCTAssertFalse(app.buttons["Delete event"].exists)
+        app.buttons["Done"].firstMatch.click()
+        XCTAssertTrue(app.buttons["Calendars"].waitForExistence(timeout: 5))
+    }
+
     func testMainSectionsOpenWithoutErrors() {
         for title in ["Tasks", "Waiting For", "Borrowing & Lending", "Last Time", "Inventory", "Things To Pay", "Notes", "Meals", "Dashboard"] {
             navigate(title)

@@ -114,3 +114,11 @@ Validation: `python3 Tests/check_notes.py` and `python3 Tests/check_storage.py`.
 Flexible tasks can be moved to Waiting For using **Convert to Waiting For** in the task editor or the task’s context menu on Tasks and Dashboard. The title becomes the record title and task notes become its first update. The original task leaves the task lists.
 
 Task context menus offer **Move to tomorrow** and, for scheduled repeating tasks, **Move to next repeat**. These postpone the task without marking it complete or adding completion history. The next-repeat action skips to the next scheduled occurrence after today/current due date and preserves the repeat pattern. Date moves (including **Move back to today**) sync to Apple Reminders through the configured sync Mac. Flexible tasks continue to stay in HouseHippo.
+
+### Dashboard calendars
+
+The Dashboard shows today's events for Sage and Dan together, independently of the task profile. Open **Calendars** above the cards, connect Apple Calendar, and choose one specific calendar per person. Google calendars work when they are already added to Apple Calendar. Both selected calendars need to be accessible on each device; selections are saved locally and must be configured separately on each device.
+
+Calendar events are display-only: HouseHippo has no event creation, editing, deletion, or RSVP actions. Apple requires **Full Access** permission to read events, even for a display-only integration. HouseHippo queries only the selected calendars for the current local day; events are read directly from Apple Calendar and are not copied into the household database. All-day and overlapping multi-day events are included. A missing calendar shows an unavailable message rather than substituting another calendar. Changes refresh automatically while the Dashboard is open and when returning to the app.
+
+To verify on signed devices, select an Apple calendar and a Google calendar, check timed/all-day/recurring/overnight events against Apple Calendar, and confirm an event in a third calendar stays hidden. Check permission denial/revocation, unavailable selected calendars, switching the task profile, and local-day rollover. These checks need real calendar accounts and are not covered by automated builds.

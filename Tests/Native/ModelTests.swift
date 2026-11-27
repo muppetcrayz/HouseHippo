@@ -1,4 +1,5 @@
 import XCTest
+import EventKit
 
 final class GroceryModelTests: XCTestCase {
     func testCategorySuggestionsAndPhrasePrecedence() {
@@ -266,5 +267,134 @@ final class RecurrenceTests: XCTestCase {
         let saved = edited.preparedForEditorSave(original: original, calendar: calendar)
         XCTAssertNil(saved.deferredUntil)
         XCTAssertEqual(saved.date, at(2030, 12, 4))
+    }
+}
+
+@MainActor private final class FakeDashboardCalendarReader: DashboardCalendarReading {
+    var authorizationStatus: EKAuthorizationStatus = .fullAccess
+    var available: [DashboardCalendarStore.CalendarChoice] = [.init(id: "apple", label: "Personal · iCloud"), .init(id: "google", label: "Work · Google")]
+    var events: [DashboardCalendarStore.Item] = []
+    var queries: [(DateInterval, Set<String>)] = []
+    var accessRequests = 0
+    var resets = 0
+    var grant = true
+    var failure: Error?
+    func requestAccess() async throws -> Bool {
+        accessRequests += 1
+        if let failure { throw failure }
+        authorizationStatus = grant ? .fullAccess : .denied
+        return grant
+    }
+    func reset() { resets += 1 }
+    func calendars() -> [DashboardCalendarStore.CalendarChoice] { available }
+    func items(in day: DateInterval, calendarIDs: Set<String>) -> [DashboardCalendarStore.Item] {
+        queries.append((day, calendarIDs)); return events
+    }
+}
+
+@MainActor final class DashboardCalendarTests: XCTestCase {
+    private var defaults: UserDefaults!
+    private var suite: String!
+    private var reader: FakeDashboardCalendarReader!
+    private var store: DashboardCalendarStore!
+    override func setUp() async throws {
+        suite = "HouseHippo.CalendarTests." + UUID().uuidString
+        defaults = UserDefaults(suiteName: suite)!
+        reader = FakeDashboardCalendarReader()
+        store = DashboardCalendarStore(defaults: defaults, reader: reader)
+    }
+    override func tearDown() async throws {
+        defaults.removePersistentDomain(forName: suite)
+        store = nil; reader = nil; defaults = nil
+    }
+    private var calendar: Calendar {
+        var value = Calendar(identifier: .gregorian)
+        value.timeZone = TimeZone(identifier: "America/New_York")!
+        return value
+    }
+    private func date(_ value: String) -> Date { ISO8601DateFormatter().date(from: value)! }
+    private func item(_ id: String, _ start: String, _ end: String, calendarID: String = "apple", allDay: Bool = false, canceled: Bool = false) -> DashboardCalendarStore.Item {
+        .init(id: id, calendarID: calendarID, title: id, start: date(start), end: date(end), allDay: allDay, canceled: canceled)
+    }
+    func testUnconfiguredAndMissingCalendarsNeverQueryAllCalendars() {
+        store.refresh()
+        XCTAssertTrue(reader.queries.isEmpty)
+        store.sageID = "missing"
+        store.danID = "also-missing"
+        XCTAssertTrue(reader.queries.isEmpty)
+        XCTAssertTrue(store.items.isEmpty)
+        XCTAssertEqual(store.sageID, "missing")
+    }
+    func testOnlySelectedCalendarsAreRequestedAndReturned() {
+        store.sageID = "apple"; store.danID = "google"
+        reader.events = [item("apple event", "2026-11-27T15:00:00Z", "2026-11-27T16:00:00Z"),
+                         item("google event", "2026-11-27T16:00:00Z", "2026-11-27T17:00:00Z", calendarID: "google"),
+                         item("private event", "2026-11-27T16:00:00Z", "2026-11-27T17:00:00Z", calendarID: "private")]
+        store.refresh(at: date("2026-11-27T17:00:00Z"), calendar: calendar)
+        XCTAssertEqual(reader.queries.last?.1, Set(["apple", "google"]))
+        XCTAssertEqual(store.items.map(\.id), ["apple event", "google event"])
+        reader.available.removeAll { $0.id == "google" }
+        store.refresh()
+        XCTAssertEqual(reader.queries.last?.1, Set(["apple"]))
+        XCTAssertEqual(store.danID, "google")
+    }
+    func testDayBoundariesOvernightAllDayCanceledAndOrdering() {
+        store.sageID = "apple"
+        reader.events = [
+            item("later", "2026-11-27T20:00:00Z", "2026-11-27T21:00:00Z"),
+            item("ends at midnight", "2026-11-27T04:00:00Z", "2026-11-27T05:00:00Z"),
+            item("overnight", "2026-11-27T04:00:00Z", "2026-11-27T06:00:00Z"),
+            item("tomorrow", "2026-11-28T05:00:00Z", "2026-11-28T06:00:00Z"),
+            item("all day", "2026-11-27T05:00:00Z", "2026-11-28T05:00:00Z", allDay: true),
+            item("canceled", "2026-11-27T15:00:00Z", "2026-11-27T16:00:00Z", canceled: true)]
+        store.refresh(at: date("2026-11-27T17:00:00Z"), calendar: calendar)
+        XCTAssertEqual(store.items.map(\.id), ["all day", "overnight", "later"])
+        store.refresh(at: date("2026-11-28T17:00:00Z"), calendar: calendar)
+        XCTAssertEqual(store.items.map(\.id), ["tomorrow"])
+    }
+    func testLocalDayAcrossDSTUses23And25HourWindows() {
+        store.sageID = "apple"
+        for (now, start, end, hours) in [
+            ("2026-03-08T16:00:00Z", "2026-03-08T05:00:00Z", "2026-03-09T04:00:00Z", 23.0),
+            ("2026-11-01T16:00:00Z", "2026-11-01T04:00:00Z", "2026-11-02T05:00:00Z", 25.0)] {
+            store.refresh(at: date(now), calendar: calendar)
+            XCTAssertEqual(reader.queries.last?.0.start, date(start))
+            XCTAssertEqual(reader.queries.last?.0.end, date(end))
+            XCTAssertEqual(reader.queries.last!.0.duration, hours * 3600)
+        }
+    }
+    func testSelectionsPersistLocallyAndCanBeCleared() {
+        store.sageID = "apple"; store.danID = "google"
+        let reopened = DashboardCalendarStore(defaults: defaults, reader: reader)
+        XCTAssertEqual(reopened.sageID, "apple"); XCTAssertEqual(reopened.danID, "google")
+        store.sageID = ""; store.danID = ""
+        XCTAssertTrue(store.items.isEmpty)
+        XCTAssertEqual(DashboardCalendarStore(defaults: defaults, reader: reader).sageID, "")
+    }
+    func testDeniedAndRevokedAccessClearEventsWithoutQuerying() {
+        store.sageID = "apple"
+        reader.events = [item("meeting", "2026-11-27T15:00:00Z", "2026-11-27T16:00:00Z")]
+        store.refresh(at: date("2026-11-27T17:00:00Z"), calendar: calendar)
+        XCTAssertEqual(store.items.count, 1)
+        let count = reader.queries.count
+        for status in [EKAuthorizationStatus.denied, .restricted, .writeOnly, .notDetermined] {
+            reader.authorizationStatus = status
+            store.refresh()
+            XCTAssertFalse(store.authorized); XCTAssertTrue(store.items.isEmpty); XCTAssertTrue(store.choices.isEmpty)
+            XCTAssertNotNil(store.message)
+        }
+        XCTAssertEqual(reader.queries.count, count)
+        XCTAssertEqual(reader.accessRequests, 0)
+    }
+    func testConnectGrantDenialAndFailure() async {
+        reader.authorizationStatus = .notDetermined
+        await store.connect()
+        XCTAssertTrue(store.authorized); XCTAssertEqual(reader.resets, 1); XCTAssertFalse(store.requesting)
+        reader.grant = false
+        await store.connect()
+        XCTAssertFalse(store.authorized); XCTAssertEqual(reader.resets, 1)
+        reader.failure = NSError(domain: "CalendarTests", code: 1, userInfo: [NSLocalizedDescriptionKey: "Calendar unavailable"])
+        await store.connect()
+        XCTAssertEqual(store.message, "Calendar unavailable"); XCTAssertFalse(store.requesting)
     }
 }

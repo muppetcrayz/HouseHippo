@@ -46,6 +46,7 @@ struct HomeDashboard: View {
                         .buttonStyle(.plain)
                         .accessibilityHint("Opens completed tasks in Tasks")
                     }
+                    DashboardCalendar(now: now)
                     taskBoard("Today's Tasks", icon: "sun.max", tasks: today, accent: .teal, todayRandom: true)
                     taskBoard("Flexible Tasks", icon: "leaf", tasks: flexible, accent: .orange)
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: 260), spacing: 12)], alignment: .leading, spacing: 12) {

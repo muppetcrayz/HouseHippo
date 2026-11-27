@@ -51,6 +51,10 @@ The UI scheme uses an ad-hoc-signed `UITesting` configuration with the separate 
 
 The AppleScript checks compile against installed Notes terminology without reading/writing personal notes. They can fail inside a restricted sandbox with XPC/class-name errors; run from a normal macOS terminal to verify. `check_notes.py --live-read` is an explicit optional read of real Apple Notes and is never included by the suite.
 
+## Calendar integration coverage
+
+`DashboardCalendarTests` uses an injected read-only fake; it never requests system permissions or reads personal events. It covers the two-calendar allowlist, empty/missing selections, permission grant/denial/error/revocation, local preference persistence, canceled events, overnight and all-day events, midnight rollover, and 23/25-hour DST days. The macOS UI suite verifies the calendar setup sheet and dismissal in an isolated household. Live Apple/Google account delivery and OS permission dialogs remain signed-device checks.
+
 ## Signed-device integration checks
 
 These remain manual because they require real entitlements, accounts, permissions, and two devices. Use a disposable test household and Reminders lists:

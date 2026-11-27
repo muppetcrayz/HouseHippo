@@ -13,6 +13,8 @@
 		AE0000000000000000000002 = {isa = PBXTargetDependency; target = A00000000000000000000005; targetProxy = AE0000000000000000000001; };
 /* End PBXTargetDependency section */
 /* Begin PBXBuildFile section */
+		993000000000000000000001 = {isa = PBXBuildFile; fileRef = 993000000000000000000002; };
+		993000000000000000000003 = {isa = PBXBuildFile; fileRef = 993000000000000000000002; };
 		910000000000000000000001 /* HouseHippo/SyncPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 910000000000000000000002 /* HouseHippo/SyncPolicy.swift */; };
 		930000000000000000000001 /* HouseHippo/AppleRemindersSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = 930000000000000000000002 /* HouseHippo/AppleRemindersSync.swift */; };
 		940000000000000000000001 /* HouseHippo/AppleSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = 940000000000000000000002 /* HouseHippo/AppleSync.swift */; };
@@ -50,6 +52,7 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		993000000000000000000002 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HouseHippo/DashboardCalendar.swift; sourceTree = "<group>"; };
 		910000000000000000000002 /* HouseHippo/SyncPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HouseHippo/SyncPolicy.swift; sourceTree = "<group>"; };
 		930000000000000000000002 /* HouseHippo/AppleRemindersSync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HouseHippo/AppleRemindersSync.swift; sourceTree = "<group>"; };
 		940000000000000000000002 /* HouseHippo/AppleSync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HouseHippo/AppleSync.swift; sourceTree = "<group>"; };
@@ -98,6 +101,7 @@
 				970000000000000000000002 /* HouseHippo/Groceries.swift */,
 				960000000000000000000002 /* HouseHippo/GroceryModel.swift */,
 				950000000000000000000002 /* HouseHippo/Dashboard.swift */,
+				993000000000000000000002,
 				940000000000000000000002 /* HouseHippo/AppleSync.swift */,
 				930000000000000000000002 /* HouseHippo/AppleRemindersSync.swift */,
 				910000000000000000000002 /* HouseHippo/SyncPolicy.swift */,
@@ -211,6 +215,7 @@
 				970000000000000000000001 /* HouseHippo/Groceries.swift in Sources */,
 				960000000000000000000001 /* HouseHippo/GroceryModel.swift in Sources */,
 				950000000000000000000001 /* HouseHippo/Dashboard.swift in Sources */,
+				993000000000000000000001,
 				940000000000000000000001 /* HouseHippo/AppleSync.swift in Sources */,
 				930000000000000000000001 /* HouseHippo/AppleRemindersSync.swift in Sources */,
 				910000000000000000000001 /* HouseHippo/SyncPolicy.swift in Sources */,
@@ -222,7 +227,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		AA1000000000000000000003 = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (AC0000000000000000000000,AC0000000000000000000001,AC0000000000000000000002,AC0000000000000000000003,AC0000000000000000000004,AC0000000000000000000005,AC0000000000000000000006,AC0000000000000000000007,AC0000000000000000000008,AC0000000000000000000009,AC000000000000000000000A,AC000000000000000000000B,AC000000000000000000000C,AC000000000000000000000D,AC000000000000000000000E,AC000000000000000000000F,AC0000000000000000000010,); runOnlyForDeploymentPostprocessing = 0; };
+		AA1000000000000000000003 = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (993000000000000000000003,AC0000000000000000000000,AC0000000000000000000001,AC0000000000000000000002,AC0000000000000000000003,AC0000000000000000000004,AC0000000000000000000005,AC0000000000000000000006,AC0000000000000000000007,AC0000000000000000000008,AC0000000000000000000009,AC000000000000000000000A,AC000000000000000000000B,AC000000000000000000000C,AC000000000000000000000D,AC000000000000000000000E,AC000000000000000000000F,AC0000000000000000000010,); runOnlyForDeploymentPostprocessing = 0; };
 		AA2000000000000000000003 = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (AD0000000000000000000002,); runOnlyForDeploymentPostprocessing = 0; };
 /* End PBXSourcesBuildPhase section */
 
@@ -255,7 +260,7 @@
 				CODE_SIGN_ENTITLEMENTS = HouseHippo/HouseHippoiOS.entitlements;
 				"CODE_SIGN_ENTITLEMENTS[sdk=macosx*]" = HouseHippo/HouseHippoMac.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 30;
+				CURRENT_PROJECT_VERSION = 31;
 				DEVELOPMENT_TEAM = E25BK4VCB2;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
@@ -292,7 +297,7 @@
 				CODE_SIGN_ENTITLEMENTS = HouseHippo/HouseHippoiOS.entitlements;
 				"CODE_SIGN_ENTITLEMENTS[sdk=macosx*]" = HouseHippo/HouseHippoMac.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 30;
+				CURRENT_PROJECT_VERSION = 31;
 				DEVELOPMENT_TEAM = E25BK4VCB2;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
@@ -345,7 +350,7 @@
 				"CODE_SIGN_ENTITLEMENTS[sdk=macosx*]" = "";
 				CODE_SIGN_STYLE = Manual;
 				CODE_SIGN_IDENTITY = "-";
-				CURRENT_PROJECT_VERSION = 30;
+				CURRENT_PROJECT_VERSION = 31;
 				DEVELOPMENT_TEAM = "";
 				ENABLE_APP_SANDBOX = NO;
 				ENABLE_HARDENED_RUNTIME = NO;

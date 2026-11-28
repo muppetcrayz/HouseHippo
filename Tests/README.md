@@ -50,7 +50,7 @@ xcodebuild -project HouseHippo.xcodeproj -scheme HouseHippoTests -destination 'p
 xcodebuild -project HouseHippo.xcodeproj -scheme HouseHippoUITests -destination 'platform=macOS' -only-testing:HouseHippoUITests/HouseHippoUITests/testRandomNotePickingPreservesListUntilWholeNoteIsEdited test
 ```
 
-These cover plain bullet/numbered lists, empty or formatted content, imported list paragraphs, repeated picking without removal, persistence after relaunch, and changing eligibility by editing the whole note.
+These cover plain bullet/numbered lists, empty or formatted content, imported list paragraphs, drawing every entry once, exhaustion and explicit restart, duplicate entries, unchanged note persistence after relaunch, and changing eligibility by editing the whole note.
 
 ## Data isolation
 

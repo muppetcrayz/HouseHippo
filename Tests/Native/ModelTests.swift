@@ -508,6 +508,52 @@ final class RecurrenceTests: XCTestCase {
 }
 
 final class RandomNoteListTests: XCTestCase {
+    func testRoundDrawsEveryEntryOnceThenStaysExhausted() {
+        let items = ["Tea", "Coffee", "Water", "Juice"]
+        for _ in 0..<20 {
+            var round = NotePickRound(items: items)
+            var picks: [String] = []
+            for _ in items {
+                if let selection = round.selection { picks.append(selection) }
+                round.pickAgain()
+            }
+            XCTAssertEqual(Set(picks), Set(items))
+            XCTAssertEqual(picks.count, items.count)
+            XCTAssertNil(round.selection)
+            round.pickAgain()
+            XCTAssertNil(round.selection)
+            round.startOver()
+            var restarted: [String] = []
+            for _ in items {
+                if let selection = round.selection { restarted.append(selection) }
+                round.pickAgain()
+            }
+            XCTAssertEqual(restarted.sorted(), items.sorted())
+            XCTAssertNil(round.selection)
+        }
+    }
+
+    func testSingleEntryEmptyListAndDuplicateEntries() {
+        var single = NotePickRound(items: ["Tea"])
+        XCTAssertEqual(single.selection, "Tea")
+        single.pickAgain()
+        XCTAssertNil(single.selection)
+        single.startOver()
+        XCTAssertEqual(single.selection, "Tea")
+        var empty = NotePickRound(items: [])
+        XCTAssertNil(empty.selection)
+        empty.pickAgain(); empty.startOver()
+        XCTAssertNil(empty.selection)
+        var duplicates = NotePickRound(items: ["Tea", "Tea", "Coffee"])
+        var picks: [String] = []
+        for _ in 0..<3 {
+            if let selection = duplicates.selection { picks.append(selection) }
+            duplicates.pickAgain()
+        }
+        XCTAssertEqual(picks.sorted(), ["Tea", "Tea", "Coffee"].sorted())
+        XCTAssertNil(duplicates.selection)
+    }
+
     func testRecognizesPlainListsAndPreservesItemTextAndDuplicates() {
         for marker in ["-", "*", "+", "•"] {
             XCTAssertEqual(HouseNote.randomItems(in: "\n\(marker) Tea\n\n\(marker) Coffee ☕️\n\(marker) Tea\n"), ["Tea", "Coffee ☕️", "Tea"])

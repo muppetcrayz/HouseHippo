@@ -231,29 +231,37 @@ private struct NoteEditor: View {
 private struct RandomNotePickSheet: View {
     @Environment(\.dismiss) private var dismiss
     let title: String
-    let items: [String]
-    @State private var selection: String?
+    @State private var round: NotePickRound
+
+    init(title: String, items: [String]) {
+        self.title = title
+        _round = State(initialValue: NotePickRound(items: items))
+    }
 
     var body: some View {
         VStack(spacing: 20) {
             Label("Random pick", systemImage: "dice").font(.headline).foregroundStyle(.teal)
             Text(title).font(.subheadline).foregroundStyle(.secondary)
             ScrollView {
-                Text(selection ?? "").font(.system(.title, design: .rounded).bold())
+                Text(round.selection ?? "No more options").font(.system(.title, design: .rounded).bold())
                     .multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
                     .accessibilityIdentifier("random-note-selection")
                     .frame(maxWidth: .infinity)
             }
-            Button("Pick again", systemImage: "dice") { selection = items.randomElement() }
-                .frame(maxWidth: .infinity)
-                .buttonStyle(.borderedProminent).controlSize(.large).tint(.teal)
-                .disabled(items.isEmpty)
+            if round.selection == nil {
+                Text("You’ve picked every item in this list.").foregroundStyle(.secondary)
+                Button("Start over", systemImage: "arrow.counterclockwise") { round.startOver() }
+                    .buttonStyle(.borderedProminent).controlSize(.large).tint(.teal)
+            } else {
+                Button("Pick again", systemImage: "dice") { round.pickAgain() }
+                    .frame(maxWidth: .infinity)
+                    .buttonStyle(.borderedProminent).controlSize(.large).tint(.teal)
+            }
             Button("Done") { dismiss() }.buttonStyle(.borderless).keyboardShortcut(.cancelAction)
         }
         .padding(28)
         .frame(minWidth: 320, maxWidth: 420)
         .presentationDetents([.medium])
-        .onAppear { selection = items.randomElement() }
     }
 }
 

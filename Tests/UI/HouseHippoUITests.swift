@@ -122,13 +122,26 @@ final class HouseHippoUITests: XCTestCase {
         pick.click()
         let selection = app.staticTexts["random-note-selection"]
         XCTAssertTrue(selection.waitForExistence(timeout: 5))
-        for _ in 0..<10 {
-            XCTAssertTrue(["Tea", "Coffee"].contains(selection.value as? String ?? selection.label))
+        var picks: [String] = []
+        for _ in 0..<2 {
+            picks.append(selection.value as? String ?? selection.label)
             XCTAssertFalse(app.buttons["Remove"].exists)
             XCTAssertFalse(app.buttons["Delete"].exists)
             XCTAssertFalse(app.buttons["Mark done"].exists)
             app.buttons["Pick again"].click()
         }
+        XCTAssertEqual(Set(picks), Set(["Tea", "Coffee"]))
+        XCTAssertEqual(selection.value as? String ?? selection.label, "No more options")
+        XCTAssertFalse(app.buttons["Pick again"].exists)
+        XCTAssertTrue(app.buttons["Start over"].exists)
+        app.buttons["Start over"].click()
+        var restarted: [String] = []
+        for _ in 0..<2 {
+            restarted.append(selection.value as? String ?? selection.label)
+            app.buttons["Pick again"].click()
+        }
+        XCTAssertEqual(Set(restarted), Set(["Tea", "Coffee"]))
+        XCTAssertEqual(selection.value as? String ?? selection.label, "No more options")
         app.buttons["Done"].click()
         app.terminate(); app.launch()
         navigate("Notes")

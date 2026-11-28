@@ -336,6 +336,27 @@ struct HouseNote: Identifiable, Codable, Equatable {
     var displayTitle: String { title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Untitled note" : title }
 }
 
+/// A picker round consumes a shuffled copy, never the note's saved list.
+struct NotePickRound {
+    private let items: [String]
+    private var remaining: [String]
+    private(set) var selection: String?
+
+    init(items: [String]) {
+        self.items = items
+        self.remaining = items.shuffled()
+        self.selection = remaining.popLast()
+    }
+
+    mutating func pickAgain() {
+        selection = remaining.popLast()
+    }
+
+    mutating func startOver() {
+        self = Self(items: items)
+    }
+}
+
 struct WaitingRecord: Identifiable, Codable, Equatable {
     var id = UUID()
     var title: String

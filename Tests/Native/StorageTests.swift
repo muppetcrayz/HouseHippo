@@ -22,6 +22,32 @@ import CoreData
         try body(store, directory, defaults)
     }
 
+    func testDashboardCalendarSelectionsUseHouseholdEntriesWithDeviceLocalMappings() throws {
+        try withStore { cloud, _, defaults in
+            let firstReader = FakeDashboardCalendarReader()
+            let first = DashboardCalendarStore(defaults: defaults, reader: firstReader, household: cloud)
+            first.sageID = "apple"; first.danID = "google"
+            let data = try XCTUnwrap(cloud.read("dashboard.calendar.sage"))
+            let payload = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+            XCTAssertEqual(payload["label"] as? String, "Personal · iCloud")
+            XCTAssertNil(payload["calendarID"], "Local calendar identifiers must not be synced")
+            let secondSuite = "HouseHippo.CalendarStorageTests." + UUID().uuidString
+            let secondDefaults = UserDefaults(suiteName: secondSuite)!
+            defer { secondDefaults.removePersistentDomain(forName: secondSuite) }
+            let secondReader = FakeDashboardCalendarReader()
+            secondReader.available = [.init(id: "iphone", label: "Personal · iCloud")]
+            let second = DashboardCalendarStore(defaults: secondDefaults, reader: secondReader, household: cloud)
+            second.refresh()
+            XCTAssertEqual(second.sageID, "iphone")
+            XCTAssertTrue(second.isUnresolved(.dan))
+            XCTAssertEqual(first.sageID, "apple")
+            second.sageID = ""
+            first.refresh()
+            XCTAssertEqual(first.sageID, "")
+            XCTAssertEqual(first.danID, "google")
+        }
+    }
+
     func testFreshStoreHasNoHouseholdDataOrCloudConnections() throws {
         try withStore { store, _, _ in
             XCTAssertFalse(store.cloudEnabled)

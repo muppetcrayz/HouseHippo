@@ -270,7 +270,7 @@ final class RecurrenceTests: XCTestCase {
     }
 }
 
-@MainActor private final class FakeDashboardCalendarReader: DashboardCalendarReading {
+@MainActor final class FakeDashboardCalendarReader: DashboardCalendarReading {
     var authorizationStatus: EKAuthorizationStatus = .fullAccess
     var available: [DashboardCalendarStore.CalendarChoice] = [.init(id: "apple", label: "Personal · iCloud"), .init(id: "google", label: "Work · Google")]
     var events: [DashboardCalendarStore.Item] = []
@@ -289,6 +289,20 @@ final class RecurrenceTests: XCTestCase {
     func calendars() -> [DashboardCalendarStore.CalendarChoice] { available }
     func items(in day: DateInterval, calendarIDs: Set<String>) -> [DashboardCalendarStore.Item] {
         queries.append((day, calendarIDs)); return events
+    }
+}
+
+@MainActor private final class FakeDashboardCalendarSettings: DashboardCalendarSettingsStorage {
+    var values: [String: Data] = [:]
+    var writes: [String] = []
+    var failure: Error?
+    func read(_ key: String) throws -> Data? {
+        if let failure { throw failure }
+        return values[key]
+    }
+    func put(_ data: Data, key: String) throws {
+        if let failure { throw failure }
+        values[key] = data; writes.append(key)
     }
 }
 
@@ -385,6 +399,100 @@ final class RecurrenceTests: XCTestCase {
         }
         XCTAssertEqual(reader.queries.count, count)
         XCTAssertEqual(reader.accessRequests, 0)
+    }
+    func testHouseholdSelectionsResolveDifferentLocalIDsAndPropagateChangesAndClears() throws {
+        let household = FakeDashboardCalendarSettings()
+        let first = DashboardCalendarStore(defaults: defaults, reader: reader, household: household)
+        first.sageID = "apple"; first.danID = "google"
+        let secondSuite = suite! + ".second"
+        let secondDefaults = UserDefaults(suiteName: secondSuite)!
+        defer { secondDefaults.removePersistentDomain(forName: secondSuite) }
+        let secondReader = FakeDashboardCalendarReader()
+        secondReader.available = [.init(id: "phone-apple", label: "Personal · iCloud"), .init(id: "phone-google", label: "Work · Google")]
+        let second = DashboardCalendarStore(defaults: secondDefaults, reader: secondReader, household: household)
+        second.refresh()
+        XCTAssertEqual(second.sageID, "phone-apple"); XCTAssertEqual(second.danID, "phone-google")
+        XCTAssertEqual(household.writes.count, 2, "Reading selections must not write household settings")
+        first.sageID = "google"
+        second.refresh()
+        XCTAssertEqual(second.sageID, "phone-google")
+        XCTAssertEqual(second.danID, "phone-google", "Changing Sage does not overwrite Dan")
+        second.danID = ""
+        first.refresh()
+        XCTAssertEqual(first.danID, "")
+        XCTAssertEqual(first.sageID, "google")
+    }
+    func testAmbiguousOrMissingCalendarRequiresLocalLinkWithoutChangingHousehold() {
+        let household = FakeDashboardCalendarSettings()
+        let first = DashboardCalendarStore(defaults: defaults, reader: reader, household: household)
+        first.sageID = "apple"
+        reader.available = [.init(id: "duplicate1", label: "Personal · iCloud"), .init(id: "duplicate2", label: "Personal · iCloud")]
+        first.refresh()
+        XCTAssertTrue(first.isUnresolved(.sage)); XCTAssertEqual(first.sageID, "")
+        let saved = household.values
+        first.link(.sage, to: "duplicate2")
+        XCTAssertEqual(first.sageID, "duplicate2"); XCTAssertFalse(first.isUnresolved(.sage))
+        XCTAssertEqual(household.values, saved)
+        let reopened = DashboardCalendarStore(defaults: defaults, reader: reader, household: household)
+        reopened.refresh()
+        XCTAssertEqual(reopened.sageID, "duplicate2")
+        reader.available = []
+        reopened.refresh()
+        XCTAssertTrue(reopened.isUnresolved(.sage)); XCTAssertEqual(reopened.sageID, "")
+        XCTAssertEqual(household.values, saved)
+    }
+    func testLegacySelectionsAreSharedExplicitlyWithoutOverwritingExistingHouseholdChoices() {
+        store.sageID = "apple"; store.danID = "google"
+        let household = FakeDashboardCalendarSettings()
+        let sharing = DashboardCalendarStore(defaults: defaults, reader: reader, household: household)
+        sharing.refresh()
+        XCTAssertTrue(household.writes.isEmpty, "A stale or offline device must not auto-publish old choices")
+        sharing.shareExistingSelections()
+        XCTAssertEqual(Set(household.writes), Set(["dashboard.calendar.sage", "dashboard.calendar.dan"]))
+        let saved = household.values
+        sharing.shareExistingSelections()
+        XCTAssertEqual(household.values, saved); XCTAssertEqual(household.writes.count, 2)
+    }
+    func testDifferentSourceTypeDoesNotMatchAndSaveFailureIsReported() {
+        let household = FakeDashboardCalendarSettings()
+        reader.available = [.init(id: "apple", label: "Personal · Account", sourceType: 1)]
+        let sharing = DashboardCalendarStore(defaults: defaults, reader: reader, household: household)
+        sharing.sageID = "apple"
+        reader.available = [.init(id: "other", label: "Personal · Account", sourceType: 2)]
+        sharing.refresh()
+        XCTAssertTrue(sharing.isUnresolved(.sage)); XCTAssertEqual(sharing.sageID, "")
+        let saved = household.values
+        household.failure = NSError(domain: "CalendarTests", code: 1)
+        let count = reader.queries.count
+        sharing.sageID = "other"
+        XCTAssertNotNil(sharing.settingsError)
+        XCTAssertTrue(sharing.items.isEmpty)
+        XCTAssertEqual(reader.queries.count, count)
+        XCTAssertEqual(household.values, saved)
+    }
+    func testReadFailureOrMalformedSharedSettingsDoNotQueryEvents() {
+        let household = FakeDashboardCalendarSettings()
+        let sharing = DashboardCalendarStore(defaults: defaults, reader: reader, household: household)
+        sharing.sageID = "apple"
+        household.values["dashboard.calendar.sage"] = Data("invalid".utf8)
+        let queries = reader.queries.count
+        sharing.refresh()
+        XCTAssertNotNil(sharing.settingsError); XCTAssertTrue(sharing.items.isEmpty)
+        XCTAssertEqual(reader.queries.count, queries)
+        household.failure = NSError(domain: "CalendarSettings", code: 1)
+        sharing.danID = "google"
+        XCTAssertEqual(sharing.danID, ""); XCTAssertNotNil(sharing.settingsError)
+    }
+    func testCalendarMappingCannotLeakIntoAnotherHousehold() {
+        let household = FakeDashboardCalendarSettings()
+        let sharing = DashboardCalendarStore(defaults: defaults, reader: reader, household: household)
+        sharing.sageID = "apple"
+        let another = FakeDashboardCalendarSettings()
+        let switched = DashboardCalendarStore(defaults: defaults, reader: reader, household: another)
+        switched.refresh()
+        XCTAssertEqual(switched.sageID, "")
+        switched.shareExistingSelections()
+        XCTAssertTrue(another.writes.isEmpty)
     }
     func testConnectGrantDenialAndFailure() async {
         reader.authorizationStatus = .notDetermined

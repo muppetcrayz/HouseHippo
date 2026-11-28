@@ -2,6 +2,12 @@ import SwiftUI
 import EventKit
 import Combine
 
+@MainActor protocol DashboardCalendarSettingsStorage: AnyObject {
+    func read(_ key: String) throws -> Data?
+    func put(_ data: Data, key: String) throws
+}
+extension CloudStore: DashboardCalendarSettingsStorage {}
+
 /// This boundary intentionally exposes no calendar mutation operations.
 @MainActor protocol DashboardCalendarReading {
     var authorizationStatus: EKAuthorizationStatus { get }
@@ -18,7 +24,7 @@ import Combine
     func reset() { events.reset() }
     func calendars() -> [DashboardCalendarStore.CalendarChoice] {
         events.calendars(for: .event).map {
-            .init(id: $0.calendarIdentifier, label: "\($0.title) · \($0.source.title)")
+            .init(id: $0.calendarIdentifier, label: "\($0.title) · \($0.source.title)", sourceType: $0.source.sourceType.rawValue)
         }
     }
     func items(in day: DateInterval, calendarIDs: Set<String>) -> [DashboardCalendarStore.Item] {
@@ -39,6 +45,7 @@ import Combine
     struct CalendarChoice: Identifiable {
         let id: String
         let label: String
+        var sourceType: Int = -1
     }
     struct Item: Identifiable {
         let id: String
@@ -54,18 +61,116 @@ import Combine
     @Published private(set) var authorized = false
     @Published private(set) var message: String?
     @Published private(set) var requesting = false
-    @Published var sageID: String { didSet { defaults.set(sageID, forKey: Self.sageKey); refresh() } }
-    @Published var danID: String { didSet { defaults.set(danID, forKey: Self.danKey); refresh() } }
+    enum Person: String { case sage, dan }
+    private struct SharedSelection: Codable {
+        var token = UUID()
+        var label: String? // nil is an explicit household-wide clear
+        var sourceType: Int?
+    }
+    private struct LocalLink: Codable { let token: UUID; let calendarID: String }
+    @Published private(set) var settingsError: String?
+    @Published private(set) var sharedLabels: [String: String] = [:]
+    @Published var sageID: String { didSet { selectionChanged(.sage, id: sageID) } }
+    @Published var danID: String { didSet { selectionChanged(.dan, id: danID) } }
+    private var applyingSettings = false
+    private var unresolved = Set<Person>()
+    private let household: DashboardCalendarSettingsStorage?
+    private var householdObserver: AnyCancellable?
     private static let sageKey = "househippo.calendar.sage"
     private static let danKey = "househippo.calendar.dan"
     private let defaults: UserDefaults
     private let reader: DashboardCalendarReading
 
-    init(defaults: UserDefaults = HouseHippoRuntime.defaults, reader: DashboardCalendarReading? = nil) {
+    init(defaults: UserDefaults = HouseHippoRuntime.defaults, reader: DashboardCalendarReading? = nil, household: DashboardCalendarSettingsStorage? = nil) {
+        self.household = household
         self.reader = reader ?? AppleDashboardCalendarReader()
         self.defaults = defaults
         sageID = defaults.string(forKey: Self.sageKey) ?? ""
         danID = defaults.string(forKey: Self.danKey) ?? ""
+        if let cloud = household as? CloudStore {
+            householdObserver = cloud.$revision.dropFirst().debounce(for: .milliseconds(100), scheduler: RunLoop.main)
+                .sink { [weak self] _ in self?.refresh() }
+        }
+    }
+    private func key(_ person: Person) -> String { "dashboard.calendar." + person.rawValue }
+    private func localKey(_ person: Person) -> String { person == .sage ? Self.sageKey : Self.danKey }
+    private func selectionChanged(_ person: Person, id: String) {
+        guard !applyingSettings else { return }
+        guard let household else {
+            defaults.set(id, forKey: localKey(person)); refresh(); return
+        }
+        do {
+            let choice = reader.calendars().first { $0.id == id }
+            guard id.isEmpty || choice != nil else { throw CocoaError(.validationMissingMandatoryProperty) }
+            let selection = SharedSelection(label: choice?.label, sourceType: choice?.sourceType)
+            try household.put(JSONEncoder().encode(selection), key: key(person))
+            defaults.set(id, forKey: localKey(person))
+            try saveLink(person, token: selection.token, id: id)
+            settingsError = nil
+        } catch {
+            applyingSettings = true
+            let previous = defaults.string(forKey: localKey(person)) ?? ""
+            if person == .sage { sageID = previous } else { danID = previous }
+            applyingSettings = false
+            settingsError = "Could not save household calendars: " + error.localizedDescription
+        }
+        refresh()
+    }
+    private func saveLink(_ person: Person, token: UUID, id: String) throws {
+        defaults.set(try JSONEncoder().encode(LocalLink(token: token, calendarID: id)), forKey: key(person) + ".link")
+    }
+    /// Linking an unmatched shared calendar changes only this device's mapping.
+    func link(_ person: Person, to id: String) {
+        do {
+            guard let data = try household?.read(key(person)),
+                  let choice = choices.first(where: { $0.id == id }) else { return }
+            let selection = try JSONDecoder().decode(SharedSelection.self, from: data)
+            guard selection.label != nil else { return }
+            try saveLink(person, token: selection.token, id: choice.id)
+            settingsError = nil
+        } catch { settingsError = "Could not link calendar: " + error.localizedDescription }
+        refresh()
+    }
+    func isUnresolved(_ person: Person) -> Bool { unresolved.contains(person) }
+    func shareExistingSelections() {
+        for person in [Person.sage, .dan] {
+            do {
+                guard try household?.read(key(person)) == nil else { continue }
+                let id = person == .sage ? sageID : danID
+                if !id.isEmpty { selectionChanged(person, id: id) }
+            } catch { settingsError = "Could not read household calendars: " + error.localizedDescription }
+        }
+    }
+    private func applySharedSelections() throws {
+        guard let household else { return }
+        applyingSettings = true
+        defer { applyingSettings = false }
+        unresolved = []; sharedLabels = [:]
+        for person in [Person.sage, .dan] {
+            guard let data = try household.read(key(person)) else {
+                // A mapping created for another household is never an initial selection here.
+                if defaults.data(forKey: key(person) + ".link") != nil {
+                    if person == .sage { sageID = "" } else { danID = "" }
+                    defaults.set("", forKey: localKey(person))
+                }
+                continue
+            }
+            let selection = try JSONDecoder().decode(SharedSelection.self, from: data)
+            var id = ""
+            if let label = selection.label {
+                sharedLabels[person.rawValue] = label
+                let link = defaults.data(forKey: key(person) + ".link").flatMap { try? JSONDecoder().decode(LocalLink.self, from: $0) }
+                if let link, link.token == selection.token, choices.contains(where: { $0.id == link.calendarID }) {
+                    id = link.calendarID
+                } else {
+                    let matches = choices.filter { $0.label == label && $0.sourceType == selection.sourceType }
+                    if matches.count == 1 { id = matches[0].id; try saveLink(person, token: selection.token, id: id) }
+                }
+                if id.isEmpty { unresolved.insert(person) }
+            }
+            if person == .sage { sageID = id } else { danID = id }
+            defaults.set(id, forKey: localKey(person))
+        }
     }
     func connect() async {
         guard !HouseHippoRuntime.isUITesting, !requesting else { return }
@@ -94,6 +199,8 @@ import Combine
         }
         message = nil
         choices = reader.calendars().sorted { $0.label.localizedStandardCompare($1.label) == .orderedAscending }
+        do { try applySharedSelections() }
+        catch { settingsError = "Could not read household calendars: " + error.localizedDescription; return }
         let ids = Set([sageID, danID].filter { !$0.isEmpty })
             .intersection(Set(choices.map(\.id)))
         guard !ids.isEmpty, let day = calendar.dateInterval(of: .day, for: now) else { return }
@@ -108,7 +215,7 @@ import Combine
 }
 
 struct DashboardCalendar: View {
-    @StateObject private var calendar = DashboardCalendarStore()
+    @StateObject private var calendar = DashboardCalendarStore(household: CloudStore.shared)
     @Environment(\.scenePhase) private var scenePhase
     @State private var configuring = false
     let now: Date
@@ -120,6 +227,7 @@ struct DashboardCalendar: View {
                 Spacer()
                 Button("Calendars", systemImage: "gearshape") { configuring = true }.buttonStyle(.borderless)
             }
+            if let error = calendar.settingsError { Text(error).font(.callout).foregroundStyle(.red) }
             if !calendar.authorized {
                 Text(calendar.message ?? "Connect your calendars.").font(.callout).foregroundStyle(.secondary)
                 Text("Apple requires Full Access to read events. HouseHippo only displays them and never changes your calendars.").font(.caption).foregroundStyle(.secondary)
@@ -127,8 +235,8 @@ struct DashboardCalendar: View {
                     .disabled(calendar.requesting)
             } else {
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 260), spacing: 12)], alignment: .leading, spacing: 12) {
-                    personCard("Sage", id: calendar.sageID, accent: .teal)
-                    personCard("Dan", id: calendar.danID, accent: .indigo)
+                    personCard("Sage", person: .sage, id: calendar.sageID, accent: .teal)
+                    personCard("Dan", person: .dan, id: calendar.danID, accent: .indigo)
                 }
             }
         }
@@ -139,15 +247,26 @@ struct DashboardCalendar: View {
         .sheet(isPresented: $configuring) {
             NavigationStack {
                 Form {
+                    if let error = calendar.settingsError { Text(error).foregroundStyle(.red) }
                     Section {
                         Text("Choose one calendar for each person. Both appear on the Dashboard, regardless of the selected task profile. Events are view-only.")
-                        Text("Both calendars must be visible in Apple Calendar on this device, including the Google calendar. Choose them separately on each device.")
+                        Text("Calendar choices sync with your household. Each device still needs access to both calendars in Apple Calendar. If a calendar cannot be matched uniquely, link it on that device.")
                             .foregroundStyle(.secondary)
                     }
                     if calendar.authorized {
-                        Section("Calendars on this device") {
-                            calendarPicker("Sage", selection: $calendar.sageID)
-                            calendarPicker("Dan", selection: $calendar.danID)
+                        Section("Household calendars") {
+                            calendarPicker("Sage", person: .sage, selection: $calendar.sageID)
+                            calendarPicker("Dan", person: .dan, selection: $calendar.danID)
+                            Button("Share existing selections") { calendar.shareExistingSelections() }
+                            ForEach([DashboardCalendarStore.Person.sage, .dan], id: \.rawValue) { person in
+                                if calendar.isUnresolved(person) {
+                                    Menu("Link \(person == .sage ? "Sage" : "Dan") on this device") {
+                                        ForEach(calendar.choices) { choice in
+                                            Button(choice.label) { calendar.link(person, to: choice.id) }
+                                        }
+                                    }
+                                }
+                            }
                         }
                     } else {
                         Section {
@@ -165,8 +284,11 @@ struct DashboardCalendar: View {
             }.frame(minWidth: 340, minHeight: 420)
         }
     }
-    private func calendarPicker(_ title: String, selection: Binding<String>) -> some View {
-        Picker(title, selection: selection) {
+    private func calendarPicker(_ title: String, person: DashboardCalendarStore.Person, selection: Binding<String>) -> some View {
+        let unresolved = calendar.isUnresolved(person)
+        let displayed = Binding(get: { unresolved ? "__household_unavailable__" : selection.wrappedValue }, set: { selection.wrappedValue = $0 })
+        return Picker(title, selection: displayed) {
+            if unresolved { Text(calendar.sharedLabels[person.rawValue] ?? "Link on this device").tag("__household_unavailable__") }
             Text("Not selected").tag("")
             if !selection.wrappedValue.isEmpty && !calendar.choices.contains(where: { $0.id == selection.wrappedValue }) {
                 Text("Selected calendar unavailable").tag(selection.wrappedValue)
@@ -174,11 +296,13 @@ struct DashboardCalendar: View {
             ForEach(calendar.choices) { Text($0.label).tag($0.id) }
         }
     }
-    private func personCard(_ name: String, id: String, accent: Color) -> some View {
+    private func personCard(_ name: String, person: DashboardCalendarStore.Person, id: String, accent: Color) -> some View {
         let items = calendar.items.filter { $0.calendarID == id }
         return VStack(alignment: .leading, spacing: 10) {
             Text(name).font(.headline).foregroundStyle(accent)
-            if id.isEmpty {
+            if calendar.isUnresolved(person) {
+                Text("\(calendar.sharedLabels[person.rawValue] ?? "Household calendar") is unavailable or ambiguous on this device. Add it to Apple Calendar or link it in Calendars.").font(.callout).foregroundStyle(.secondary)
+            } else if id.isEmpty {
                 Text("Choose a calendar for \(name). Choose Calendars above to get started.").font(.callout).foregroundStyle(.secondary)
             } else if !calendar.choices.contains(where: { $0.id == id }) {
                 Text("Selected calendar unavailable. Check Apple Calendar or choose another calendar.").font(.callout).foregroundStyle(.secondary)

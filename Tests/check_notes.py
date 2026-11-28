@@ -12,6 +12,14 @@ record = app[app.index('struct AppleNoteImportRecord:'):app.index('struct AppleN
 reader = notes[notes.index('private enum AppleNotesReader'):notes.rindex('#endif')]
 script = notes.split('let source = """')[1].split('"""')[0]
 checks = r'''
+precondition(HouseNote.randomItems(in: "- Tea\n- Coffee") == ["Tea", "Coffee"])
+precondition(HouseNote.randomItems(in: "\n1. Tea\n\n2. Coffee\n") == ["Tea", "Coffee"])
+precondition(HouseNote.randomItems(in: "• Tea\n• Coffee") == ["Tea", "Coffee"])
+for invalid in ["", "Tea\nCoffee", "# Drinks\n- Tea", "Intro\n- Tea", "- Tea\n  - Coffee", "- **Tea**", "- [Tea](url)", "- [ ] Tea", "- Tea\n1. Coffee", "- "] {
+    precondition(HouseNote.randomItems(in: invalid) == nil, invalid)
+}
+let listNote = HouseNote(title: "Drinks", body: "", paragraphs: [NoteParagraph(text: "Tea", style: "bullet"), NoteParagraph(text: "Coffee", style: "bullet")])
+precondition(listNote.randomItems == ["Tea", "Coffee"])
 let parsed = AppleNotesReader.parse("<h1>Home &amp; garden</h1><div>Paragraph<br>Next line</div><ul><li>One<ul><li>Nested &#x1F99B;</li></ul></li><li>Two</li></ul><h2>Next</h2>")
 precondition(parsed.map(\.text) == ["Home & garden", "Paragraph", "Next line", "One", "Nested 🦛", "Two", "Next"])
 precondition(parsed.map(\.style) == ["h1", "body", "body", "bullet", "bullet", "bullet", "h2"])

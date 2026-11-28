@@ -107,6 +107,44 @@ final class HouseHippoUITests: XCTestCase {
         XCTAssertTrue(recordButton("UI test house note").waitForExistence(timeout: 5))
     }
 
+    func testRandomNotePickingPreservesListUntilWholeNoteIsEdited() {
+        navigate("Notes")
+        app.buttons["New note"].click()
+        fill("Title", with: "Drinks to choose")
+        app.descendants(matching: .any).matching(NSPredicate(format: "label == %@ AND (elementType == %d OR elementType == %d)", "Edit", XCUIElement.ElementType.button.rawValue, XCUIElement.ElementType.radioButton.rawValue)).firstMatch.click()
+        let editor = app.textViews["Markdown note"].firstMatch
+        XCTAssertTrue(editor.waitForExistence(timeout: 5))
+        editor.click()
+        editor.typeText("- Tea\n- Coffee")
+        app.buttons["Save"].firstMatch.click()
+        let pick = app.buttons["Pick a random item from Drinks to choose"]
+        XCTAssertTrue(pick.waitForExistence(timeout: 5))
+        pick.click()
+        let selection = app.staticTexts["random-note-selection"]
+        XCTAssertTrue(selection.waitForExistence(timeout: 5))
+        for _ in 0..<10 {
+            XCTAssertTrue(["Tea", "Coffee"].contains(selection.value as? String ?? selection.label))
+            XCTAssertFalse(app.buttons["Remove"].exists)
+            XCTAssertFalse(app.buttons["Delete"].exists)
+            XCTAssertFalse(app.buttons["Mark done"].exists)
+            app.buttons["Pick again"].click()
+        }
+        app.buttons["Done"].click()
+        app.terminate(); app.launch()
+        navigate("Notes")
+        recordButton("Drinks to choose").click()
+        app.descendants(matching: .any).matching(NSPredicate(format: "label == %@ AND (elementType == %d OR elementType == %d)", "Edit", XCUIElement.ElementType.button.rawValue, XCUIElement.ElementType.radioButton.rawValue)).firstMatch.click()
+        let reopened = app.textViews["Markdown note"].firstMatch
+        XCTAssertTrue(reopened.waitForExistence(timeout: 5))
+        XCTAssertEqual(reopened.value as? String, "- Tea\n- Coffee")
+        reopened.click()
+        reopened.typeKey("a", modifierFlags: .command)
+        reopened.typeText("A regular note")
+        XCTAssertFalse(app.buttons["Random pick"].exists)
+        app.buttons["Save"].firstMatch.click()
+        XCTAssertFalse(app.buttons["Pick a random item from Drinks to choose"].exists)
+    }
+
     func testInventoryCollectionCanBeCreated() {
         navigate("Inventory")
         app.menuButtons["Add collection"].click()

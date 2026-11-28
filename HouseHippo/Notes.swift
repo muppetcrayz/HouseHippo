@@ -71,6 +71,7 @@ struct NotesHome: View {
     @State private var selected: Set<String> = []
     @State private var preview = false
     @State private var resetting = false
+    @State private var randomList: HouseNote?
     var body: some View {
         HippoCanvas {
             HippoPageHeader(title: "Notes", summary: Text("Your household notebook"))
@@ -79,13 +80,20 @@ struct NotesHome: View {
             }
             HippoGrid {
                 ForEach(notes.filter { search.isEmpty || ($0.title + " " + $0.body).localizedCaseInsensitiveContains(search) }) { note in
-                    Button { editing = note } label: {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text(note.displayTitle).font(.headline)
-                            NoteMarkdownPreview(markdown: note.markdownText, maximumLines: 4)
-                                .font(.callout).foregroundStyle(.secondary)
-                        }.frame(maxWidth: .infinity, alignment: .leading).padding(16).hippoCard()
-                    }.buttonStyle(.plain)
+                    VStack(alignment: .leading, spacing: 8) {
+                        Button { editing = note } label: {
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text(note.displayTitle).font(.headline)
+                                NoteMarkdownPreview(markdown: note.markdownText, maximumLines: 4)
+                                    .font(.callout).foregroundStyle(.secondary)
+                            }.frame(maxWidth: .infinity, alignment: .leading).padding(16).hippoCard()
+                        }.buttonStyle(.plain)
+                        if note.randomItems != nil {
+                            Button("Random pick", systemImage: "dice") { randomList = note }
+                                .buttonStyle(.bordered)
+                                .accessibilityLabel("Pick a random item from " + note.displayTitle)
+                        }
+                    }
                 }
             }
             if reading { ProgressView("Reading Apple Notes…") }
@@ -124,6 +132,7 @@ struct NotesHome: View {
             Text("This removes every notebook note, including old imports and HouseHippo edits, for the whole household. Task notes and Apple Notes are kept. You can then choose notes to import again.")
         }
         .sheet(item: $editing) { NoteEditor(note: $0) }
+        .sheet(item: $randomList) { RandomNotePickSheet(title: $0.displayTitle, items: $0.randomItems ?? []) }
         .sheet(isPresented: $preview) {
             NavigationStack {
                 VStack(alignment: .leading) {
@@ -168,6 +177,7 @@ private struct NoteEditor: View {
     @State private var previewing = true
     @State private var issue: String?
     @State private var deleting = false
+    @State private var picking = false
 
     init(note: HouseNote) {
         _note = State(initialValue: note)
@@ -182,6 +192,9 @@ private struct NoteEditor: View {
                     Text("Edit").tag(false)
                     Text("Preview").tag(true)
                 }.pickerStyle(.segmented)
+                if HouseNote.randomItems(in: markdown) != nil {
+                    Button("Random pick", systemImage: "dice") { picking = true }.buttonStyle(.bordered)
+                }
                 if previewing {
                     ScrollView { NoteMarkdownPreview(markdown: markdown).textSelection(.enabled).padding(12).frame(maxWidth: .infinity, alignment: .leading) }
                 } else {
@@ -205,10 +218,42 @@ private struct NoteEditor: View {
                 }
             }
         }.frame(minWidth: 340, idealWidth: 720, minHeight: 500, idealHeight: 650)
+        .sheet(isPresented: $picking) {
+            RandomNotePickSheet(title: note.displayTitle, items: HouseNote.randomItems(in: markdown) ?? [])
+        }
         .confirmationDialog("Delete this note from HouseHippo?", isPresented: $deleting) {
             Button("Delete", role: .destructive) { do { try CloudStore.shared.deleteNote(id: note.id); dismiss() } catch { issue = error.localizedDescription } }
         }
         .alert("Note", isPresented: Binding(get: { issue != nil }, set: { if !$0 { issue = nil } })) { Button("OK") { issue = nil } } message: { Text(issue ?? "") }
+    }
+}
+
+private struct RandomNotePickSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    let title: String
+    let items: [String]
+    @State private var selection: String?
+
+    var body: some View {
+        VStack(spacing: 20) {
+            Label("Random pick", systemImage: "dice").font(.headline).foregroundStyle(.teal)
+            Text(title).font(.subheadline).foregroundStyle(.secondary)
+            ScrollView {
+                Text(selection ?? "").font(.system(.title, design: .rounded).bold())
+                    .multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("random-note-selection")
+                    .frame(maxWidth: .infinity)
+            }
+            Button("Pick again", systemImage: "dice") { selection = items.randomElement() }
+                .frame(maxWidth: .infinity)
+                .buttonStyle(.borderedProminent).controlSize(.large).tint(.teal)
+                .disabled(items.isEmpty)
+            Button("Done") { dismiss() }.buttonStyle(.borderless).keyboardShortcut(.cancelAction)
+        }
+        .padding(28)
+        .frame(minWidth: 320, maxWidth: 420)
+        .presentationDetents([.medium])
+        .onAppear { selection = items.randomElement() }
     }
 }
 

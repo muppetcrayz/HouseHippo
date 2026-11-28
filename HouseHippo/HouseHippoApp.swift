@@ -313,6 +313,26 @@ struct HouseNote: Identifiable, Codable, Equatable {
             return prefix + paragraph.text
         }.joined(separator: "\n")
     }
+    /// Only flat Markdown lists with plain item text qualify as random-choice lists.
+    static func randomItems(in markdown: String) -> [String]? {
+        var items: [String] = []
+        var listKind: String?
+        for rawLine in markdown.components(separatedBy: .newlines) {
+            if rawLine.trimmingCharacters(in: .whitespaces).isEmpty { continue }
+            // Indentation can represent a nested list or code, neither is a plain list.
+            guard rawLine.first != " ", rawLine.first != "\t",
+                  let match = rawLine.range(of: #"^(?:[-*+•] |[0-9]+[.)] )"#, options: .regularExpression) else { return nil }
+            let kind = rawLine.first?.isNumber == true ? "ordered" : String(rawLine.first!)
+            if let listKind, listKind != kind { return nil }
+            listKind = kind
+            let item = String(rawLine[match.upperBound...]).trimmingCharacters(in: .whitespaces)
+            guard !item.isEmpty,
+                  item.range(of: #"[*_`\[\]<>]|!\(|^#{1,6} |^> |^[-+•] |^[0-9]+[.)] |^[-=]{3,}$| {2}$"#, options: .regularExpression) == nil else { return nil }
+            items.append(item)
+        }
+        return items.isEmpty ? nil : items
+    }
+    var randomItems: [String]? { Self.randomItems(in: markdownText) }
     var displayTitle: String { title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Untitled note" : title }
 }
 

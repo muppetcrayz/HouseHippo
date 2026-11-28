@@ -11,6 +11,7 @@ A native SwiftUI app for household tasks, meal planning, and groceries on iOS 17
 - Last Time markers with date-only entries, fuzzy elapsed time, and Shared/Sage/Dan filters.
 - Things To Pay for one-off payments with individual amounts, due dates, notes, and paid history.
 - Inventory collections with independent fields, CSV import, search, and editable records.
+- Notes containing only a flat, plain bullet or numbered list support repeated random picks. Picking keeps every item; change the list by editing and saving the whole note.
 - Weekly dinner planning and a categorized grocery checklist.
 - iCloud syncing and household sharing.
 - Tasks are filed in Apple Reminders lists, so HouseHippo needs Reminders access on each device to create or edit tasks. Optional two-way syncing with Apple Reminders runs through one configured Mac. Flexible tasks stay in HouseHippo.

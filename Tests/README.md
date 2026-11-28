@@ -43,6 +43,15 @@ xcodebuild -project HouseHippo.xcodeproj -scheme HouseHippoTests -destination 'p
 xcodebuild -project HouseHippo.xcodeproj -scheme HouseHippoUITests -destination 'platform=macOS' test
 ```
 
+Run just the random-note feature checks:
+
+```sh
+xcodebuild -project HouseHippo.xcodeproj -scheme HouseHippoTests -destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO -only-testing:HouseHippoTests/RandomNoteListTests test
+xcodebuild -project HouseHippo.xcodeproj -scheme HouseHippoUITests -destination 'platform=macOS' -only-testing:HouseHippoUITests/HouseHippoUITests/testRandomNotePickingPreservesListUntilWholeNoteIsEdited test
+```
+
+These cover plain bullet/numbered lists, empty or formatted content, imported list paragraphs, repeated picking without removal, persistence after relaunch, and changing eligibility by editing the whole note.
+
 ## Data isolation
 
 Native storage tests use unique temporary SQLite directories and unique preference suites with CloudKit disabled. They never call `CloudStore.shared` or launch the app.

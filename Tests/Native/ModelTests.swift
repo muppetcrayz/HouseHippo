@@ -398,3 +398,32 @@ final class RecurrenceTests: XCTestCase {
         XCTAssertEqual(store.message, "Calendar unavailable"); XCTAssertFalse(store.requesting)
     }
 }
+
+final class RandomNoteListTests: XCTestCase {
+    func testRecognizesPlainListsAndPreservesItemTextAndDuplicates() {
+        for marker in ["-", "*", "+", "•"] {
+            XCTAssertEqual(HouseNote.randomItems(in: "\n\(marker) Tea\n\n\(marker) Coffee ☕️\n\(marker) Tea\n"), ["Tea", "Coffee ☕️", "Tea"])
+        }
+        XCTAssertEqual(HouseNote.randomItems(in: "1. First\r\n2. Second"), ["First", "Second"])
+        XCTAssertEqual(HouseNote.randomItems(in: "1) First\n2) Second"), ["First", "Second"])
+        XCTAssertEqual(HouseNote.randomItems(in: "- Only choice"), ["Only choice"])
+    }
+
+    func testRejectsContentOtherThanAFlatPlainList() {
+        for markdown in ["", " \n", "Tea\nCoffee", "Intro\n- Tea", "- Tea\nConclusion", "# Drinks\n- Tea", "- Tea\n  - Coffee", "    - Code", "- **Bold**", "- _Italic_", "- `Code`", "- [Link](https://example.com)", "- <b>HTML</b>", "- [ ] Checklist", "- [x] Checked", "- > Quote", "- # Heading", "- ---", "- ", "- Tea\n1. Coffee"] {
+            XCTAssertNil(HouseNote.randomItems(in: markdown), markdown)
+        }
+    }
+
+    func testImportedListsQualifyButNestedAndHeadingParagraphsDoNot() {
+        var note = HouseNote(title: "Drinks", body: "Legacy body", paragraphs: [
+            NoteParagraph(text: "Tea", style: "bullet"), NoteParagraph(text: "Coffee", style: "bullet")
+        ])
+        XCTAssertEqual(note.randomItems, ["Tea", "Coffee"])
+        note.paragraphs?[1].depth = 1
+        XCTAssertNil(note.randomItems)
+        note.paragraphs?[1].depth = 0
+        note.paragraphs?.insert(NoteParagraph(text: "Drinks", style: "h1"), at: 0)
+        XCTAssertNil(note.randomItems)
+    }
+}

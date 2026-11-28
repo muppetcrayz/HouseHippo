@@ -244,6 +244,8 @@
 		A00000000000000000000007 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				GCC_GENERATE_DEBUGGING_SYMBOLS = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				SDKROOT = auto;
@@ -260,7 +262,7 @@
 				CODE_SIGN_ENTITLEMENTS = HouseHippo/HouseHippoiOS.entitlements;
 				"CODE_SIGN_ENTITLEMENTS[sdk=macosx*]" = HouseHippo/HouseHippoMac.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 32;
+				CURRENT_PROJECT_VERSION = 33;
 				DEVELOPMENT_TEAM = E25BK4VCB2;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
@@ -297,7 +299,7 @@
 				CODE_SIGN_ENTITLEMENTS = HouseHippo/HouseHippoiOS.entitlements;
 				"CODE_SIGN_ENTITLEMENTS[sdk=macosx*]" = HouseHippo/HouseHippoMac.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 32;
+				CURRENT_PROJECT_VERSION = 33;
 				DEVELOPMENT_TEAM = E25BK4VCB2;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
@@ -350,7 +352,7 @@
 				"CODE_SIGN_ENTITLEMENTS[sdk=macosx*]" = "";
 				CODE_SIGN_STYLE = Manual;
 				CODE_SIGN_IDENTITY = "-";
-				CURRENT_PROJECT_VERSION = 32;
+				CURRENT_PROJECT_VERSION = 33;
 				DEVELOPMENT_TEAM = "";
 				ENABLE_APP_SANDBOX = NO;
 				ENABLE_HARDENED_RUNTIME = NO;
